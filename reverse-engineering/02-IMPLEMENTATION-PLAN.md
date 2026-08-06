@@ -986,8 +986,8 @@ and fake output.)
 
 | Date | Phase | Status | Notes |
 |---|---|---|---|
-| _today_ | 0 | ⬜ | env setup + deps + Ollama smoke test |
-| _today_ | 1 | ⬜ | free LLM via Ollama — first e2e run |
+| 2026-08-07 | 0 | ✅ | env setup + deps + Ollama smoke test — venv built, faster-whisper/cv2/yt-dlp/openai installed. **Laptop pin: `opencv-python==4.10.0.84`** (5.x drops `cv2.CascadeClassifier`). Port confirmed: Mac's Ollama on **11434**, tunnel `-L 11435:127.0.0.1:11434`. |
+| 2026-08-07 | 1 | ✅ | free LLM via Ollama — first e2e run. `config.py` (OPENAI_BASE_URL + localhost key relax), `local/llm.py` (ollama backend + route). `qwen3:14b` via tunnel, score 92; `output/short_01.mp4` 572×1020 9:16 with audio. |
 | _today_ | 2 | ⬜ | word-level timestamps |
 | _today_ | 3 | ⬜ | subtitle burn-in |
 | _today_ | 4 | ⬜ | worker + launchd 24/7 |
