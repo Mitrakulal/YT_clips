@@ -3,6 +3,7 @@
 Reads a local media file and returns the same shape the highlight generator
 expects: {duration, segments[start, end, text]}.
 """
+import json
 import os
 import re
 from pathlib import Path
@@ -133,11 +134,12 @@ def transcribe_local(media_path: str, language: Optional[str] = None) -> Dict:
     model = WhisperModel(LOCAL_WHISPER_MODEL, device=device, compute_type=compute_type)
 
     transcribe_kwargs = {
-        "audio": media_path,
-        "language": language,
-        "beam_size": 5,
-        "condition_on_previous_text": False,
-    }
+            "audio": media_path,
+            "language": language,
+            "beam_size": 5,
+            "condition_on_previous_text": False,
+            "word_timestamps": True,
+        }
     if LOCAL_WHISPER_VAD_FILTER:
         transcribe_kwargs["vad_filter"] = True
         transcribe_kwargs["vad_parameters"] = LOCAL_WHISPER_VAD_PARAMETERS
@@ -147,16 +149,27 @@ def transcribe_local(media_path: str, language: Optional[str] = None) -> Dict:
     segments_iter, info = model.transcribe(**transcribe_kwargs)
 
     segments = []
+    all_words = []
     for s in segments_iter:
-        segments.append({
+        seg = {
             "start": float(s.start),
             "end": float(s.end),
             "text": (s.text or "").strip(),
-        })
+        }
+        if getattr(s, "words", None):
+            seg["words"] = [
+                {"start": float(w.start), "end": float(w.end), "word": w.word}
+                for w in s.words
+            ]
+            all_words.extend(seg["words"])
+        segments.append(seg)
 
     duration = float(getattr(info, "duration", 0.0)) or (segments[-1]["end"] if segments else 0.0)
     print(f"[transcribe/local] {len(segments)} segments, {duration:.0f}s of audio", flush=True)
     transcript = {"duration": duration, "segments": segments}
     cache_path = _write_srt_cache(media_path, transcript)
     print(f"[transcribe/local] wrote cache: {cache_path}", flush=True)
+    words_path = cache_path.with_suffix(".words.json")
+    words_path.write_text(json.dumps(all_words, ensure_ascii=False), encoding="utf-8")
+    print(f"[transcribe/local] wrote {len(all_words)} word timestamps: {words_path}", flush=True)
     return transcript
