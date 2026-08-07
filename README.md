@@ -1,55 +1,96 @@
-# YT_clips — Free, local YouTube-to-Shorts pipeline
+<div align="center">
 
-Turn any long-form YouTube video into **professional, complete 9:16 Shorts** — locally on your own Mac, for free. No SaaS, no per-clip credits, no watermark.
+# 🎬 YT_clips
 
-Built for creators/students who want full control over the highlight algorithm and output quality. Every clip comes out library-finished: clean opening sentence, a **natural ending** (never cut mid-thought), loudness-normalized audio, styled captions, and a big hook title.
+### Turn any YouTube link into professional, complete 9:16 Shorts — locally, for free.
 
-> The whole pipeline can run **fully offline**: local Whisper transcription + a local LLM (Ollama) for highlight selection. The only internet needed is downloading the source video.
+[![Python](https://img.shields.io/badge/Python-3.9+-3776AB?style=flat-square&logo=python&logoColor=white)](#)
+[![Local](https://img.shields.io/badge/100%25-Local-2ECC71?style=flat-square)](#)
+[![Free](https://img.shields.io/badge/Free-No%20credits-2ECC71?style=flat-square)](#)
+[![LLM](https://img.shields.io/badge/LLM-Ollama-4B8BBE?style=flat-square&logo=ollama&logoColor=white)](#)
+[![STT](https://img.shields.io/badge/STT-faster--whisper-9C27B0?style=flat-square&logo=openai&logoColor=white)](#)
+[![ffmpeg](https://img.shields.io/badge/ffmpeg-libass-049375?style=flat-square&logo=ffmpeg&logoColor=white)](#)
+[![Platform](https://img.shields.io/badge/platform-macOS-333333?style=flat-square&logo=apple&logoColor=white)](#)
+[![Status](https://img.shields.io/badge/status-active-2ECC71?style=flat-square)](#)
 
----
-
-## What makes the output "finished"
-
-- **Complete boundaries** — a clip starts at the *start of a sentence* and ends at a *natural pause* in speech (extend-to-pause logic), not an arbitrary mid-conversation cut. Clips can run up to your cap (default **120 s**) so a thought or mini-conversation can finish.
-- **Genuinely distinct clips** — highlights are deduped on their **complete spans** before cropping, so N clips cover N different moments (no doubled-up "same clip twice"). If the source only has 3 real sections, you get 3, not 5 repetitive ones.
-- **Hook title** — a big bold title burned over the first seconds of each clip.
-- **Styled captions** — bold, thin-outlined, single clean line, ≤4 words/line, with yellow keyword emphasis.
-- **Loudness-normalized** — `loudnorm` to **−14 LUFS** (Short/Reels standard) + locked **30 fps**.
-- **1080p vertical reframe** — up to 1080p source, center-anchored reframe with a slow, smooth push-in zoom (no glitchy per-frame face-tracking).
+</div>
 
 ---
 
-## Pipeline stages
+## 🧭 What it is
+
+A **fully offline, free** pipeline that turns any long-form YouTube video into
+finished-looking Shorts — the whole chain (transcription, highlight selection,
+cropping, caption burning, loudness) runs on your own machine. An optional
+cloud mode is included for when you'd rather use a hosted LLM.
+
+> Everything is tuned so the output **looks like it was edited by a professional**: it doesn't just chop 60-second slices — it cuts on complete thoughts.
+
+---
+
+## ✨ Why the output looks finished
+
+> [!TIP]
+> **Complete sentences.** Every clip opens at the *start of a sentence* and lands at a **natural pause** in the speech — never a mid-thought chop. Clips can run up to your cap (**default 120 s**) so a full point or mini-conversation finishes.
+
+> [!TIP]
+> **Genuinely distinct clips.** Highlights are deduped on their **complete spans** *before* cropping, so `N` requested clips cover `N` different moments — no "same clip twice" filler.
+
+> [!IMPORTANT]
+> **As a library-grade asset.** Big bold **hook title** burned over the opening seconds · clean, thin-outlined **captions** (≤4 words/line, key-word highlight) · **−14 LUFS** loudness (Short/Reels standard) · **30 fps** locked · **1080p** vertical reframe.
+
+> [!TIP]
+> **No glitchy motion.** A steady, slow push-in zoom with a fixed anchor — not jumpy per-frame face-tracking (which stutters on two-speaker shots).
+
+---
+
+## ⚙️ How it works
 
 ```
  queue/inbox/<job>.json
-      │  (drop a job → worker picks it up, launchd keeps it alive 24/7)
+      │  drop a job → the 24/7 worker picks it up (kept alive by launchd)
       ▼
- 1. download    yt-dlp (1080p default, resolution-aware cache)
- 2. transcribe  faster-whisper small (CPU) → .srt + word timestamps
- 3. highlight   local LLM (Ollama: qwen3:14b) ranks viral moments;
-                padded + deduped to non-overlapping complete spans
- 4. crop        vertical 9:16 reframe + dynamic zoom + -14 LUFS + 30fps
- 5. subtitles   burn hook + styled captions (libass)
- 6. publish     final mp4s → published/<job_id>/ + manifest + highlights.json
+ ┌─────────────┐  ┌───────────────┐  ┌──────────────────┐
+ │ 1. download │→│ 2. transcribe │→│ 3. highlight      │
+ │   yt-dlp    │  │  faster-whisper│ │   local LLM ranks │
+ │  (1080p)    │  │  → .srt+words │  │   → dedup spans  │
+ └─────────────┘  └───────────────┘  └────────┬─────────┘
+                                              ▼
+ ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐
+ │ 6. publish   │← │ 5. subtitles │← │ 4. crop                 │
+ │  → published/│  │  hook+captions│  │  9:16 reframe + zoom    │
+ │   + manifest │  │  (libass)    │  │  + loudnorm −14 LUFS    │
+ └──────────────┘  └──────────────┘  └──────────────────────────┘
 ```
+
+Workers are **crash-safe**: each job's progress lives in `jobs/<id>/state.json`, finished stages are cached, and in-flight jobs are auto-rescued on boot. A broken job never takes down the loop.
 
 ---
 
-## Two ways to run
+## 🚀 Quickstart
 
-### 1. One-shot CLI (easy, for a single video)
+One command for a single video (needs `ffmpeg` with `--enable-libass`, Ollama, and the venv):
 
 ```bash
+python3 -m venv venv && source venv/bin/activate
 python main.py "https://www.youtube.com/watch?v=..." --mode local --num-clips 5 --aspect-ratio 9:16
 ```
 
-### 2. 24/7 queue worker (the project's workflow on this Mac)
+> [!NOTE]
+> **Local mode is free.** It uses a local Ollama model for ranking and local Whisper for transcription. Install with:
 
-`worker.py` is a launchd daemon (`com.user.shorts.pipeline`) that watches a file queue and runs every job through the `download → transcribe → highlight → crop → subtitles → publish` stages. Submit a job by dropping a spec into the inbox:
+```bash
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements-local.txt     # yt-dlp, faster-whisper, opencv, dotenv, ...
+cp .env.example .env
+ollama pull qwen3:14b                     # the reliable strict-JSON ranker
+brew install ffmpeg-full                  # libass is required for captions
+```
+
+**As a 24/7 queue worker (the project's real workflow on macOS):**
 
 ```json
-// queue/inbox/<job_id>.json
+// drop into queue/inbox/<job_id>.json
 {
   "job_id": "abc12345",
   "source_url": "https://www.youtube.com/watch?v=...",
@@ -58,74 +99,75 @@ python main.py "https://www.youtube.com/watch?v=..." --mode local --num-clips 5 
 }
 ```
 
-Workers are crash-safe: each job's state lives in `jobs/<job_id>/state.json`, finished stages are cached, and in-flight jobs are rescued on restart. One broken job never kills the loop.
-
 ---
 
-## Requirements
+## 🧰 Feature matrix
 
-- **Python 3** + `venv` (tested on 3.14)
-- **ffmpeg with `--enable-libass`** (for styled caption burning). On macOS with Homebrew that's `ffmpeg-full`.
-- **Ollama** running locally (for free local ranking) — `ollama pull qwen3:14b`
-- Optional cloud: [MuAPI](https://muapi.ai) key for the `api` mode (`generate_shorts` + `--mode api`).
-
-### Install
-
-```bash
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements-local.txt   # yt-dlp, faster-whisper, opencv, openai, dotenv, ...
-cp .env.example .env                    # → set local model + knobs
-```
-
----
-
-## Configuration (`.env`)
-
-| Knob | Default | Meaning |
+| Capability | Local mode | API mode |
 |---|---|---|
-| `OPENAI_MODEL` | `qwen3:14b` | Local Ollama model for ranking (must emit strict JSON) |
+| Transcription | faster-whisper `small` (CPU) | hosted |
+| Highlight ranking | **Ollama** `qwen3:14b` | MuAPI |
+| Vertical reframe + zoom | ✅ | ✅ |
+| Hook title + styled captions | ✅ | ✅ |
+| −14 LUFS + 30 fps | ✅ | ✅ |
+| Source quality | 1080p, resolution-aware cache | 1080p |
+
+---
+
+## ⚙️ Configuration (`.env`)
+
+| Knob | Default | Purpose |
+|---|---|---|
+| `OPENAI_MODEL` | `qwen3:14b` | Local ranking model (must emit strict JSON) |
 | `OPENAI_BASE_URL` | `http://localhost:11434/v1` | Ollama OpenAI-compat endpoint |
-| `LOCAL_WHISPER_MODEL` | `small` | Whisper size (larger = slower but more accurate) |
-| `LOCAL_WHISPER_DEVICE` | `cpu` | leave `cpu` unless you set up Metal/CUDA torch |
-| `SHORTS_MAX_SECONDS` | `120` | Longest clip (user ceiling; enough for a complete point) |
-| `SHORTS_MIN_SECONDS` | `8` | Shortest clip (reached by pulling START back, never breaking the ending) |
-| `HOOK_TEXT` / `HOOK_SECONDS` / `HOOK_FONT_SIZE` | `true` / `3` / `72` | Hook-title overlay style |
-| `DYNAMIC_ZOOM` / `ZOOM_MAX` | `true` / `0.06` | Slow push-in (6%) — no glitchy face-tracking |
-| `LOUDNESS_FILTER` | `loudnorm=I=-14...` | −14 LUFS broadcast-normalized audio |
-| `OUTPUT_FPS` | `30` | Locked output frame rate |
-| `DOWNLOAD_FORMAT` | `1080` | Preferred source resolution (auto-fallback) |
-| `KEYWORD_EMPHASIS` | `true` | Yellow-highlight key words in captions |
-| `SUBTITLE_LANGUAGE` | (empty) | Force `en` for English-only captions |
+| `LOCAL_WHISPER_MODEL` | `small` | Whisper size (accuracy vs. speed) |
+| `SHORTS_MAX_SECONDS` | `120` | Longest clip (~complete point) |
+| `SHORTS_MIN_SECONDS` | `8` | Shortest clip (pulls START back, keeps ending) |
+| `HOOK_TEXT / HOOK_SECONDS / HOOK_FONT_SIZE` | `true / 3 / 72` | Hook-title overlay |
+| `DYNAMIC_ZOOM / ZOOM_MAX` | `true / 0.06` | Slow push-in (no face-tracking) |
+| `LOUDNESS_FILTER` | `loudnorm=I=-14:TP=-1.5:LRA=11` | −14 LUFS audio |
+| `OUTPUT_FPS` | `30` | Locked frame rate |
+| `DOWNLOAD_FORMAT` | `1080` | Preferred source resolution |
+| `KEYWORD_EMPHASIS` | `true` | Yellow key-word highlight |
+| `SUBTITLE_LANGUAGE` | — | Force `en` for English-only captions |
 
 ---
 
-## Repo layout
+## 📁 Repo layout
 
 ```
-main.py                one-shot CLI (mode local | api)
-worker.py              24/7 queue pipeline worker (run under launchd)
-stage.py               per-stage state helpers
-subtitles.py           ASS caption/hook builder + burn
-shorts_generator/      pipeline package
-  local/               local-mode implementations
-    downloader.py      yt-dlp wrapper (resolution-aware cache)
-    transcriber.py     faster-whisper wrapper (+ .srt/.words cache)
-    llm.py             strict-JSON local-LLM highlight ranking
-    clipper.py         vertical reframe + sentence-alignment + zoom
-config.py              all knobs (env-driven)
-docs/                  design notes: research report, implementation plan, Mac handoff
-outputs/               published sample runs (MANIFEST + highlights.json)
+main.py                    one-shot CLI (mode local | api)
+worker.py                 24/7 queue pipeline worker (runs under launchd)
+stage.py                  per-stage state helpers
+subtitles.py              ASS caption/hook builder + burn
+shorts_generator/         pipeline package
+  local/                  local-mode implementations
+    downloader.py         yt-dlp (resolution-aware cache)
+    transcriber.py        faster-whisper wrapper (+ cache)
+    llm.py                strict-JSON local-LLM highlight ranking
+    clipper.py            vertical reframe + sentence alignment + zoom
+  config.py               all knobs (env-driven)
+docs/                      design notes (research, implementation plan, Mac handoff)
+outputs/                   published sample runs (MANIFEST + highlights.json)
 ```
 
 ---
 
-## Notes & known limits
+## ⚠️ Notes & limits
 
-- Video length & content govern how many distinct complete clips are possible. A 6-min dense monologue reliably yields ~3 real sections; a long interview can yield many more. The pipeline **never invents** a 5th clip if the source only has 4 distinct complete sections.
-- Ranking models must emit **strict JSON**. Of the local options tested, `qwen3:14b` is the reliable choice; some faster compact models (e.g. `phi3`) are quicker but occasionally produce malformed JSON and retries.
-- Subtitle burning needs `ffmpeg` built with **libass**; the plain Homebrew `ffmpeg` may fail captions (use `ffmpeg-full`).
+> [!WARNING]
+> **Rankers must emit strict JSON.** Of the local models tried, **qwen3:14b** is the reliable choice. Some fast compact models (`phi3`) are quicker but occasionally emit malformed JSON (→ retries).
+
+> [!NOTE]
+> **How many distinct clips?** It's bounded by the source. A 6-minute dense monologue reliably yields ~3 real sections; a long interview yields more. When you ask for 5 but the source has only 4 complete sections, the pipeline **won't invent** a repetitive 5th clip — feedback, not filler.
+
+> [!CAUTION]
+> Caption burning needs a **`ffmpeg` built with `libass`**. The stock Homebrew `ffmpeg` may skip captions; use `ffmpeg-full`.
 
 ---
 
-*Local, free, and yours. Compare moments, get complete Shorts, ship them.*
+<div align="center">
+
+<sub>Local · Free · Yours — from a long video to complete Shorts.</sub>
+
+</div>
