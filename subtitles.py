@@ -35,8 +35,8 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Caption,Arial,96,&H00FFFFFF,&H00FFE600,&H00141414,&H96000000,-1,0,0,0,100,100,0,0,1,3,0,2,40,40,220,1
-Style: Hook,Arial,__HOOKSIZE__,&H00FFFFFF,&H00FFE600,&H00000000,&HAA000000,-1,0,0,0,100,100,0,0,4,2,0,5,60,60,0,1
+Style: Caption,Arial,84,&H00FFFFFF,&H00FFE600,&H00000000,&H90000000,-1,0,0,0,100,100,0.6,0,1,4,1,2,40,40,230,1
+Style: Hook,Arial,__HOOKSIZE__,&H00FFFFFF,&H0000FFC8,&H00000000,&HB0000000,-1,0,0,0,100,100,1,0,4,2,0,5,60,60,0,1
 """
 
 _STOPWORDS = {
@@ -105,7 +105,7 @@ def build_ass(
     cur_len = 0
     for w in rel:
         wlen = len(w["word"])
-        if cur and (len(cur) >= 8 or cur_len + wlen > 40):
+        if cur and (len(cur) >= 6 or cur_len + wlen > 32):
             chunks.append(cur)
             cur, cur_len = [], 0
         cur.append(w)
@@ -119,6 +119,10 @@ def build_ass(
             continue
         start = max(0.0, chunk[0]["start"] - clip_start)
         end = chunk[-1]["end"] - clip_start
+        # Don't stack a caption under the hook title during the opening beat —
+        # this is what was producing the doubled-subtitle look (#3).
+        if HOOK_TEXT and hook_text and start < HOOK_SECONDS:
+            continue
         text = " ".join(_highlight_tokens([w["word"] for w in chunk], keywords))
         events.append(f"Dialogue: 0,{_ts(start)},{_ts(end)},Caption,,0,0,0,,{text}")
 

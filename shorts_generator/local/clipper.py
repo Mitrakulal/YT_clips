@@ -16,6 +16,8 @@ from ..config import (
     SHORTS_MIN_SECONDS,
     DYNAMIC_ZOOM,
     ZOOM_MAX,
+    FACE_TRACK,
+    FACE_CENTER_Y,
 )
 
 
@@ -33,6 +35,40 @@ def _ratio(aspect_ratio: str) -> float:
 # so clips never open/close mid-word. Then enforce cap (60s) + floor (8s).
 # ---------------------------------------------------------------------------
 _EPS = 0.12  # seconds of tolerance when matching a neighbouring word boundary
+
+
+def parse_srt(path: str) -> List[Dict]:
+    """Parse a whisper-style .srt into [{start, end, text}] sentence segments."""
+    blocks: List[Dict] = []
+    cur: Optional[Dict] = None
+    try:
+        with open(path, encoding="utf-8") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line:
+                    if cur:
+                        blocks.append(cur)
+                        cur = None
+                    continue
+                if cur is None and line.isdigit():
+                    cur = {}
+                elif cur is not None and "-->" in line:
+                    t0, t1 = line.split("-->")
+                    cur["start"] = _srt_ts(t0)
+                    cur["end"] = _srt_ts(t1)
+                elif cur is not None and "text" not in cur:
+                    cur["text"] = line
+        if cur:
+            blocks.append(cur)
+    except OSError:
+        return []
+    return blocks
+
+
+def _srt_ts(s: str) -> float:
+    """'00:01:23,456' -> 83.456 seconds."""
+    h, m, rest = s.strip().replace(",", ".").split(":")
+    return int(h) * 3600 + int(m) * 60 + float(rest)
 
 
 def align_to_words(start: float, end: float, words: Optional[List[Dict]]) -> Tuple[float, float]:
@@ -59,15 +95,51 @@ def align_to_words(start: float, end: float, words: Optional[List[Dict]]) -> Tup
     return new_start, new_end
 
 
+def align_start_to_sentence(start: float, segments: Optional[List[Dict]]) -> float:
+    """Snap `start` to the START of the sentence that contains it, so clips
+    open on a complete thought."""
+    if not segments:
+        return start
+    for seg in segments:
+        if seg["end"] > start:
+            return seg["start"]
+    return start
+
+
+def align_end_complete(start: float, end: float, segments: Optional[List[Dict]], max_dur: float) -> float:
+    """Extend the END forward through consecutive sentences until a natural
+    pause or the max duration, so clips LAND on a completed thought instead of
+    cutting mid-sentence. A gap of >= 0.8s before the next sentence is treated
+    as a breathing point where the thought has finished."""
+    if not segments:
+        return end
+    best = end
+    begun = False
+    for i, seg in enumerate(segments):
+        s, e = seg["start"], seg["end"]
+        if not begun:
+            if e > end or (abs(s - end)) <= 0.5:  # sentence containing/just past end
+                begun = True
+            else:
+                continue
+        best = e
+        if best - start >= max_dur - 0.3:
+            break
+        nxt = segments[i + 1] if i + 1 < len(segments) else None
+        if nxt and (nxt["start"] - e) >= 0.8:  # landed on a natural pause
+            break
+    return min(best, start + max_dur)
+
+
 def enforce_limits(start: float, end: float, source_duration: Optional[float] = None) -> Tuple[float, float]:
-    """Cap duration at SHORTS_MAX_SECONDS, raise it to SHORTS_MIN_SECONDS."""
+    """Cap duration at SHORTS_MAX_SECONDS; reach the floor by pulling the START
+    backward (lead-in context) so the END is never broken mid-sentence."""
     duration = end - start
     if duration > SHORTS_MAX_SECONDS:
         end = start + SHORTS_MAX_SECONDS
     if duration < SHORTS_MIN_SECONDS:
         extend = SHORTS_MIN_SECONDS - duration
-        room = (source_duration - end) if source_duration else extend
-        end = min(end + (extend if room >= extend else room or extend), (source_duration or end + extend))
+        start = max(0.0, start - extend)
     return start, end
 
 
@@ -75,10 +147,16 @@ def normalize_window(
     start: float,
     end: float,
     words: Optional[List[Dict]] = None,
+    segments: Optional[List[Dict]] = None,
     source_duration: Optional[float] = None,
 ) -> Tuple[float, float]:
-    """Full window cleanup: sentence-boundary snap, then cap + floor."""
-    start, end = align_to_words(start, end, words)
+    """Full window cleanup: complete-thought boundaries (sentence-aligned start,
+    end extended to a natural pause), then cap + floor."""
+    if segments:
+        start = align_start_to_sentence(start, segments)
+        end = align_end_complete(start, end, segments, SHORTS_MAX_SECONDS)
+    else:
+        start, end = align_to_words(start, end, words)
     start, end = enforce_limits(start, end, source_duration)
     return start, end
 
@@ -132,45 +210,46 @@ def _reframe_vertical(in_path: str, out_path: str, aspect_ratio: str) -> str:
 
     face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
+    # Default (FACE_TRACK off, recommended): stay glued to a fixed upper-center
+    # anchor so framing never jumps around between speakers. When face tracking
+    # is enabled we chase faces, but VERY gently, so motion stays smooth.
+    anchor = (src_w // 2, int(src_h * FACE_CENTER_Y))
+    track = anchor
+    smoothing = 0.04 if FACE_TRACK else 0.0
+
     silent_path = out_path + ".silent.mp4"
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     writer = cv2.VideoWriter(silent_path, fourcc, fps, (crop_w, crop_h))
 
-    last_center: Optional[Tuple[int, int]] = None
-    smoothing = 0.15  # how aggressively to chase a new face position
     frame_idx = 0
     while True:
         ret, frame = cap.read()
         if not ret:
             break
 
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(40, 40))
-        if len(faces) > 0:
-            # Pick the largest face — usually the speaker.
-            x, y, w, h = max(faces, key=lambda f: f[2] * f[3])
-            cx = x + w // 2
-            cy = y + h // 2
-            if last_center is None:
-                last_center = (cx, cy)
-            else:
-                lx, ly = last_center
-                last_center = (
-                    int(lx + (cx - lx) * smoothing),
-                    int(ly + (cy - ly) * smoothing),
-                )
-        if last_center is None:
-            last_center = (src_w // 2, src_h // 2)
+        cx, cy = anchor
+        if FACE_TRACK:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(50, 50))
+            if len(faces) > 0:
+                # Pick the single most persistent face: the largest near the
+                # existing track, else the largest overall.
+                x, y, w, h = max(faces, key=lambda f: f[2] * f[3])
+                tx, ty = x + w // 2, y + h // 2
+                track = (int(track[0] + (tx - track[0]) * smoothing),
+                         int(track[1] + (ty - track[1]) * smoothing))
+            cx, cy = track
 
-        cx, cy = last_center
         x0 = max(0, min(src_w - crop_w, cx - crop_w // 2))
         y0 = max(0, min(src_h - crop_h, cy - crop_h // 2))
         cropped = frame[y0:y0 + crop_h, x0:x0 + crop_w]
 
-        # #4 Dynamic zoom: slow push-in (Ken Burns) so frames are never static.
+        # #4 Dynamic zoom: a slow, constant push-in so frames are never static.
+        # Zoom is anchored to the (now stable) crop centre, so it reads as a
+        # gentle Ken Burns move, not a glitch.
         if DYNAMIC_ZOOM:
             t = frame_idx / total_frames if total_frames > 1 else 1.0
-            zf = 1.0 + ZOOM_MAX * min(1.0, t)  # 1.0 -> 1+ZOOM_MAX across the clip
+            zf = 1.0 + ZOOM_MAX * min(1.0, t)
             zoom_w = int(crop_w * zf)
             zoom_h = int(crop_h * zf)
             big = cv2.resize(cropped, (zoom_w, zoom_h), interpolation=cv2.INTER_LANCZOS4)
@@ -207,15 +286,19 @@ def crop_clip_local(
     aspect_ratio: str,
     out_path: str,
     words: Optional[List[Dict]] = None,
+    segments: Optional[List[Dict]] = None,
     source_duration: Optional[float] = None,
 ) -> str:
     """Cut + reframe one highlight, returning the local mp4 path.
 
-    start_time/end_time are first passed through normalize_window: snapped to
-    word boundaries (#2), capped at SHORTS_MAX_SECONDS and raised to
-    SHORTS_MIN_SECONDS (#1).
+    start_time/end_time come from highlights.json, which the highlight stage has
+    ALREADY aligned to complete sentences (align_start_to_sentence +
+    align_end_complete to a natural pause). Re-running that alignment here with
+    the .srt-derived segments is what made two distinct picks collide (the .srt
+    split differs slightly from the transcript segments used at rank time).
+    So the crop only CLAMPS to SHORTS_MIN/MAX — it never re-extends.
     """
-    start_time, end_time = normalize_window(start_time, end_time, words, source_duration)
+    start_time, end_time = enforce_limits(start_time, end_time, source_duration)
     print(
         f"[clip/local] window {start_time:.2f}->{end_time:.2f}s "
         f"({end_time - start_time:.1f}s after normalize)",
@@ -237,6 +320,7 @@ def crop_highlights_local(
     aspect_ratio: str = "9:16",
     out_dir: Optional[str] = None,
     words: Optional[List[Dict]] = None,
+    segments: Optional[List[Dict]] = None,
 ) -> List[Dict]:
     out_dir = out_dir or LOCAL_OUTPUT_DIR
     os.makedirs(out_dir, exist_ok=True)
@@ -253,6 +337,7 @@ def crop_highlights_local(
                 aspect_ratio,
                 out_path,
                 words=words,
+                segments=segments,
                 source_duration=source_duration,
             )
             results.append({**h, "clip_url": out_path})

@@ -25,11 +25,11 @@ from dotenv import load_dotenv
 load_dotenv(ROOT / ".env")
 
 from shorts_generator.highlights import get_highlights
-from shorts_generator.local.clipper import crop_highlights_local
+from shorts_generator.local.clipper import crop_highlights_local, parse_srt, align_start_to_sentence, align_end_complete
 from shorts_generator.local.downloader import download_youtube_local
 from shorts_generator.local.llm import call_local_llm
 from shorts_generator.local.transcriber import transcribe_local
-from shorts_generator.config import DOWNLOAD_FORMAT, SUBTITLE_LANGUAGE
+from shorts_generator.config import DOWNLOAD_FORMAT, SUBTITLE_LANGUAGE, SHORTS_MAX_SECONDS, SHORTS_MIN_SECONDS
 import subtitles
 import stage as st
 
@@ -125,10 +125,79 @@ def run_stage_transcribe(job, state, job_dir, source):
     return transcript, words_path
 
 
+def _dedupe_highlights(highlights, n, min_gap=3.0):
+    """Greedy non-overlapping selection by score so the returned clips cover
+    DISTINCT moments of the video (fixes 'the clips are repetitive'). Any pick
+    that overlaps an already-kept window is skipped; picks are kept in timeline
+    order."""
+    picked = []  # list of (start, end)
+    for h in sorted(highlights, key=lambda h: int(h.get("score", 0)), reverse=True):
+        if not h.get("start_time") and not h.get("end_time"):
+            continue
+        s, e = float(h["start_time"]), float(h["end_time"])
+        overlap = any(not (e <= ks - min_gap or s >= ke + min_gap) for ks, ke, _ in picked)
+        if overlap:
+            continue
+        picked.append((s, e, h))
+        if len(picked) >= n:
+            break
+    return [h for _, _, h in sorted(picked, key=lambda t: t[0])]
+
+
+def _pad_highlights(highlights, n, transcript, max_dur=SHORTS_MAX_SECONDS):
+    """Guarantee at least `n` clips. If the LLM under-produces (phi3 is
+    notorious for this), fill the gap with density-ranked transcript segments so
+    the user always gets the requested number of complete, distinct clips. Each
+    fallback pick is extended to its complete span and kept non-overlapping."""
+    hs = list(highlights)
+    if not n or len(hs) >= n:
+        return hs
+    picked = [(float(h["start_time"]), float(h["end_time"])) for h in hs if h.get("start_time") is not None]
+    segs = transcript.get("segments", []) if isinstance(transcript, dict) else []
+    cands = []
+    for seg in segs:
+        s = align_start_to_sentence(float(seg["start"]), segs)
+        e = align_end_complete(s, float(seg["end"]), segs, max_dur)
+        if any(not (e <= ps - 3.0 or s >= pe + 3.0) for ps, pe in picked):
+            continue
+        text = seg.get("text", "")
+        cands.append((len(text.split()), s, e, text))
+    cands.sort(reverse=True)  # richest sentences first
+    for _words_, s, e, text in cands:
+        if len(hs) >= n:
+            break
+        if any(not (e <= ps - 3.0 or s >= pe + 3.0) for ps, pe in picked):
+            continue  # overlaps an already-chosen clip
+        title = " ".join(text.split())[:70]
+        hs.append({"title": title or "Key Moment", "start_time": s, "end_time": e,
+                   "score": 0, "reason": "density-fallback"})
+        picked.append((s, e))
+    return hs
+
+
 def run_stage_highlight(job, state, job_dir, transcript):
-    result = get_highlights(transcript, num_clips=state.get("num_clips", 3), llm_fn=call_local_llm)
+    n = state.get("num_clips", 3)
+    result = get_highlights(transcript, num_clips=n, llm_fn=call_local_llm)
     highlights = result.get("highlights", [])
-    top = sorted(highlights, key=lambda h: int(h.get("score", 0)), reverse=True)[: state["num_clips"]]
+
+    # Extend every candidate to its COMPLETE span (sentence-aligned start, end
+    # carried to a natural pause) BEFORE dedupe, so overlap is measured on the
+    # real windows that will be cropped — this is what keeps clips distinct.
+    segments = transcript.get("segments", []) if isinstance(transcript, dict) else []
+    pre = []
+    for h in highlights:
+        try:
+            s = float(h.get("start_time", 0.0))
+            e = float(h.get("end_time", s + SHORTS_MIN_SECONDS))
+        except (TypeError, ValueError):
+            continue
+        if segments:
+            s = align_start_to_sentence(s, segments)
+            e = align_end_complete(s, e, segments, SHORTS_MAX_SECONDS)
+        pre.append({**h, "start_time": s, "end_time": e})
+
+    top = _dedupe_highlights(pre, n)   # distinct, non-overlapping moments
+    top = _pad_highlights(top, n, transcript)  # guarantee at least n
     art = job_dir / "highlights.json"
     art.write_text(json.dumps({"highlights": top}, indent=2, ensure_ascii=False), encoding="utf-8")
     st.mark_stage(state, "highlight_llm", "done", artifact=str(art))
@@ -144,9 +213,9 @@ def _load_words(words_path: Optional[Path]) -> List:
     return []
 
 
-def run_stage_crop(job, state, job_dir, source, top, words=None):
+def run_stage_crop(job, state, job_dir, source, top, words=None, segments=None):
     aspect = state.get("aspect_ratio", "9:16")
-    shorts = crop_highlights_local(source, top, aspect_ratio=aspect, out_dir=str(job_dir), words=words)
+    shorts = crop_highlights_local(source, top, aspect_ratio=aspect, out_dir=str(job_dir), words=words, segments=segments)
     st.mark_stage(state, "crop", "done", artifact=str(job_dir))
     return shorts
 
@@ -242,10 +311,16 @@ def run_job(active_path: Path, seen: set) -> bool:
         if not st.stage_done(state, "crop"):
             if top is None:
                 raise RuntimeError("no highlights to crop")
-            # Load word timestamps so the crop stage can snap to word boundaries.
+            # Load word timestamps + sentence segments so the crop stage can snap
+            # to full-sentence boundaries (complete thoughts, not mid-word cuts).
             w_art = state.get("stages", {}).get("transcribe", {}).get("artifact")
             crop_words = _load_words(Path(w_art) if w_art else None)
-            shorts = run_stage_crop(job, state, job_dir, source, top, words=crop_words)
+            crop_segments = []
+            if w_art:
+                srt = w_art[:-len(".words.json")] + ".srt" if w_art.endswith(".words.json") else None
+                if srt and Path(srt).exists():
+                    crop_segments = parse_srt(srt)
+            shorts = run_stage_crop(job, state, job_dir, source, top, words=crop_words, segments=crop_segments)
             st.save_state(state_path, state)
         else:
             shorts = []
