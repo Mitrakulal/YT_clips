@@ -989,7 +989,7 @@ and fake output.)
 | 2026-08-07 | 0 | ✅ | env setup + deps + Ollama smoke test — venv built, faster-whisper/cv2/yt-dlp/openai installed. **Laptop pin: `opencv-python==4.10.0.84`** (5.x drops `cv2.CascadeClassifier`). Port confirmed: Mac's Ollama on **11434**, tunnel `-L 11435:127.0.0.1:11434`. |
 | 2026-08-07 | 1 | ✅ | free LLM via Ollama — first e2e run. `config.py` (OPENAI_BASE_URL + localhost key relax), `local/llm.py` (ollama backend + route). `qwen3:14b` via tunnel, score 92; `output/short_01.mp4` 572×1020 9:16 with audio. |
 | 2026-08-07 | 2 | ✅ | word-level timestamps. `local/transcriber.py`: `word_timestamps=True` + `all_words` collector + `.words.json` persist. Schema `{"start","end","word"}` flat array; `<stem>.words.json` next to `.srt`. Verified e2e + clip render green. |
-| _today_ | 3 | ⬜ | subtitle burn-in |
+| 2026-08-07 | 3 | ✅ | subtitle burn-in. `subtitles.py` (net-new at repo root, see §0.2): `build_ass` groups words.json into ≤8-word chunks, `burn_subtitles` ffmpeg-burns at 1080×1920 (`cwd`=ass dir + basename → no Windows colon-break; the plan's Windows gotcha line 466-468). Verified on synthetic 9:16 clip: SSIM bottom-third 0.869 < full 0.920 ⇒ captions rendered. Pending only the LLM-linked real-video integration rerun (blocked on tunnel). |
 | _today_ | 4 | ⬜ | worker + launchd 24/7 |
 | _today_ | 5 | ⬜ | hardening |
 | _today_ | 6 | ⬜ | OPTIONAL publish (not committed) |
