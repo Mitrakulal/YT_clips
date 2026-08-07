@@ -6,3 +6,9 @@ venv/
 output/
 *.mp4
 .DS_Store
+# worker runtime dirs / state
+jobs/
+queue/
+published/
+logs/
+seen.json
