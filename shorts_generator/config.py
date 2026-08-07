@@ -21,6 +21,27 @@ LOCAL_WHISPER_MODEL = os.getenv("LOCAL_WHISPER_MODEL", "base")
 LOCAL_WHISPER_DEVICE = os.getenv("LOCAL_WHISPER_DEVICE", "auto")  # auto / cpu / cuda
 LOCAL_OUTPUT_DIR = os.getenv("LOCAL_OUTPUT_DIR", "output")
 
+# --- Professional-output knobs (all optional, safe defaults) ---
+# 1. Clip length limits: hard cap at SHORTS_MAX_SECONDS, floor at MIN
+SHORTS_MAX_SECONDS = float(os.getenv("SHORTS_MAX_SECONDS", "60"))
+SHORTS_MIN_SECONDS = float(os.getenv("SHORTS_MIN_SECONDS", "8"))
+# 2. Sentence-boundary trimming is ALWAYS on (aligns cuts to word boundaries)
+# 3. Hook text overlay: big bold title burned into the first seconds of each clip
+HOOK_TEXT = os.getenv("HOOK_TEXT", "true").strip().lower() == "true"
+HOOK_SECONDS = float(os.getenv("HOOK_SECONDS", "3"))
+HOOK_FONT_SIZE = int(os.getenv("HOOK_FONT_SIZE", "72"))
+# 4. Dynamic zoom (Ken Burns slow push-in, applied per-frame in the reframer)
+DYNAMIC_ZOOM = os.getenv("DYNAMIC_ZOOM", "true").strip().lower() == "true"
+ZOOM_MAX = float(os.getenv("ZOOM_MAX", "0.09"))  # 9% push-in across the clip
+# 5. Loudness normalization + locked frame rate on every published clip
+LOUDNESS_FILTER = os.getenv("LOUDNESS_FILTER", "loudnorm=I=-14:TP=-1.5:LRA=11")
+OUTPUT_FPS = int(os.getenv("OUTPUT_FPS", "30"))
+# 6. Source download: prefer high-res when available (falls back automatically)
+DOWNLOAD_FORMAT = os.getenv("DOWNLOAD_FORMAT", "1080")
+# 7. Caption styling: keyword emphasis; SUBTITLE_LANGUAGE forces a script (e.g. "en")
+KEYWORD_EMPHASIS = os.getenv("KEYWORD_EMPHASIS", "true").strip().lower() == "true"
+SUBTITLE_LANGUAGE = os.getenv("SUBTITLE_LANGUAGE", "").strip() or None
+
 # VAD (Voice Activity Detection) settings for faster-whisper
 # Default threshold is 0.5; lower = more sensitive, higher = less sensitive
 # Default min_speech_duration_ms is 250ms; increase to avoid tiny false positives

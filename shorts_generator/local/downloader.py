@@ -83,16 +83,19 @@ def _resolve_local_path(source: str) -> Optional[str]:
     return None
 
 
-def _existing_download(out_dir: str, video_id: str) -> Optional[str]:
-    """Return a cached download path if we already have this YouTube id."""
-    for ext in (".mp4", ".mkv", ".webm"):
-        candidate = os.path.join(out_dir, f"source_{video_id}{ext}")
-        if os.path.exists(candidate):
-            return candidate
+def _existing_download(out_dir: str, video_id: str, height: int) -> Optional[str]:
+    """Return a cached download path if we already have this id AT THIS height.
+
+    The cache is resolution-aware (source_<id>_<height>.mp4) so upgrading the
+    requested format never silently reuses an old low-res download.
+    """
+    candidate = os.path.join(out_dir, f"source_{video_id}_{height}.mp4")
+    if os.path.exists(candidate):
+        return candidate
     return None
 
 
-def download_youtube_local(video_url: str, fmt: str = "720", out_dir: Optional[str] = None) -> str:
+def download_youtube_local(video_url: str, fmt: str = "1080", out_dir: Optional[str] = None) -> str:
     """Download a remote URL or return a local file path unchanged."""
     local_path = _resolve_local_path(video_url)
     if local_path:
@@ -104,16 +107,20 @@ def download_youtube_local(video_url: str, fmt: str = "720", out_dir: Optional[s
     os.makedirs(out_dir, exist_ok=True)
 
     video_id = _extract_youtube_video_id(video_url)
+    try:
+        height = int(fmt)
+    except ValueError:
+        height = 720
     if video_id:
-        cached = _existing_download(out_dir, video_id)
+        cached = _existing_download(out_dir, video_id, height)
         if cached:
-            print(f"[download/local] reusing cached download: {cached}", flush=True)
+            print(f"[download/local] reusing cached {height}p download: {cached}", flush=True)
             return cached
 
-    print(f"[download/local] {video_url} @ {fmt}p → {out_dir}/", flush=True)
+    print(f"[download/local] {video_url} @ {height}p → {out_dir}/", flush=True)
     ydl_opts = {
         "format": _format_for(fmt),
-        "outtmpl": os.path.join(out_dir, "source_%(id)s.%(ext)s"),
+        "outtmpl": os.path.join(out_dir, f"source_%(id)s_{height}.%(ext)s"),
         "merge_output_format": "mp4",
         "quiet": True,
         "no_warnings": True,

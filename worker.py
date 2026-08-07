@@ -16,6 +16,7 @@ import time
 import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import List, Optional
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
@@ -28,6 +29,7 @@ from shorts_generator.local.clipper import crop_highlights_local
 from shorts_generator.local.downloader import download_youtube_local
 from shorts_generator.local.llm import call_local_llm
 from shorts_generator.local.transcriber import transcribe_local
+from shorts_generator.config import DOWNLOAD_FORMAT, SUBTITLE_LANGUAGE
 import subtitles
 import stage as st
 
@@ -101,13 +103,18 @@ def classify_error(exc: Exception) -> str:
 
 
 def run_stage_download(job, state, job_dir):
-    source = download_youtube_local(job["source_url"], fmt=state.get("format", "480"))
+    # Legacy jobs default "format": "480" in new_state; treat that as
+    # "unspecified" and use the configured DOWNLOAD_FORMAT instead.
+    fmt = state.get("format", DOWNLOAD_FORMAT)
+    if not fmt or fmt == "480":
+        fmt = DOWNLOAD_FORMAT
+    source = download_youtube_local(job["source_url"], fmt=fmt)
     st.mark_stage(state, "download", "done", artifact=str(source))
     return source
 
 
 def run_stage_transcribe(job, state, job_dir, source):
-    transcript = transcribe_local(source)
+    transcript = transcribe_local(source, language=SUBTITLE_LANGUAGE)
     words_path = Path(source).with_suffix(".words.json")
     if not words_path.exists():
         # words.json lives next to the .srt cache in LOCAL_OUTPUT_DIR
@@ -128,15 +135,24 @@ def run_stage_highlight(job, state, job_dir, transcript):
     return top
 
 
-def run_stage_crop(job, state, job_dir, source, top):
+def _load_words(words_path: Optional[Path]) -> List:
+    if words_path and words_path.exists():
+        try:
+            return json.loads(words_path.read_text(encoding="utf-8"))
+        except Exception:
+            return []
+    return []
+
+
+def run_stage_crop(job, state, job_dir, source, top, words=None):
     aspect = state.get("aspect_ratio", "9:16")
-    shorts = crop_highlights_local(source, top, aspect_ratio=aspect, out_dir=str(job_dir))
+    shorts = crop_highlights_local(source, top, aspect_ratio=aspect, out_dir=str(job_dir), words=words)
     st.mark_stage(state, "crop", "done", artifact=str(job_dir))
     return shorts
 
 
 def run_stage_subtitles(job, state, job_dir, words_path, shorts):
-    words = json.loads(words_path.read_text(encoding="utf-8")) if words_path and words_path.exists() else []
+    words = _load_words(words_path)
     final = []
     for short in shorts:
         clip = short.get("clip_url")
@@ -149,6 +165,7 @@ def run_stage_subtitles(job, state, job_dir, words_path, shorts):
                 clip, words,
                 float(short["start_time"]), float(short["end_time"]),
                 captioned,
+                hook_text=short.get("title"),
             )
             short["clip_url"] = captioned
         except Exception as e:
@@ -225,7 +242,10 @@ def run_job(active_path: Path, seen: set) -> bool:
         if not st.stage_done(state, "crop"):
             if top is None:
                 raise RuntimeError("no highlights to crop")
-            shorts = run_stage_crop(job, state, job_dir, source, top)
+            # Load word timestamps so the crop stage can snap to word boundaries.
+            w_art = state.get("stages", {}).get("transcribe", {}).get("artifact")
+            crop_words = _load_words(Path(w_art) if w_art else None)
+            shorts = run_stage_crop(job, state, job_dir, source, top, words=crop_words)
             st.save_state(state_path, state)
         else:
             shorts = []
