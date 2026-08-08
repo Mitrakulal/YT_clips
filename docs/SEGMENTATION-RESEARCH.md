@@ -157,7 +157,7 @@ SV_EMBED_MODEL=nomic-embed-text
 
 ## 8. ✅ Implementation (DONE — 2026-08-08) + verified results
 
-**Shipped (commit `…`):**
+**Shipped (commit `a4dfd5e`):**
 
 - **New stage `shorts_generator/local/segment.py`** — `compute_boundaries(transcript)`:
   1. merges whisper segments into **sentence units**,
