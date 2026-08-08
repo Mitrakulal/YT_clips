@@ -80,7 +80,7 @@ turns = [(s.start, s.end, s.label) for s in turns.itertracks()]  # (start, end, 
 
 ## 5. Live proof on YOUR video (semantic segmentation)
 
-I embedded every Whisper segment via your local `nomic-embed-text` and computed windowed cosine similarity (context ±2). With a statistical threshold (mean − 0.9σ), the **detects the section changes** where human viewers would split the 120 s video:
+I embedded every Whisper segment via your local `nomic-embed-text` and computed windowed cosine similarity (context ±2). With a statistical threshold (mean − 0.9σ), it detects the section changes where human viewers would split the 120 s video:
 
 ```
 ~44s   discipline-first → "one weekend, two weeks in, you see results"
