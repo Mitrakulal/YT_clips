@@ -76,6 +76,9 @@ def call_ollama_llm(prompt: str) -> str:
         temperature=0.2,
         messages=[{"role": "user", "content": prompt}],
         extra_body={"think": False},
+        # Ollama OpenAI-compat: force the model into schema-free JSON mode.
+        # Without this, qwen3 drifts into bare arrays / prose on long prompts.
+        response_format={"type": "json_object"},
     )
     return response.choices[0].message.content or ""
 
