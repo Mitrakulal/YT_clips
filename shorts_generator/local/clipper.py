@@ -211,14 +211,25 @@ def _reframe_vertical(in_path: str, out_path: str, aspect_ratio: str) -> str:
     crop_w = max(2, crop_w - (crop_w % 2))
     crop_h = max(2, crop_h - (crop_h % 2))
 
-    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    face_cascade = None
+    mp_tracker = None
+    if FACE_TRACK == "haar":
+        face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    elif FACE_TRACK == "mediapipe":
+        try:
+            from .facetrack import MediaFaceTracker
+            mp_tracker = MediaFaceTracker()  # BlazeFace, smoother pan
+            print("[reframe] mediapipe face-track active", flush=True)
+        except Exception as e:
+            print(f"[reframe] mediapipe unavailable ({e}); falling back to fixed anchor", flush=True)
+            mp_tracker = None
 
-    # Default (FACE_TRACK off, recommended): stay glued to a fixed upper-center
-    # anchor so framing never jumps around between speakers. When face tracking
-    # is enabled we chase faces, but VERY gently, so motion stays smooth.
+    # Default (FACE_TRACK off): stay glued to a fixed upper-center anchor so
+    # framing never jumps around between speakers. When tracking is enabled we
+    # chase faces, but VERY gently, so motion stays smooth.
     anchor = (src_w // 2, int(src_h * FACE_CENTER_Y))
     track = anchor
-    smoothing = 0.04 if FACE_TRACK else 0.0
+    smoothing = 0.04 if FACE_TRACK in ("haar", "mediapipe") else 0.0
 
     silent_path = out_path + ".silent.mp4"
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
@@ -231,7 +242,14 @@ def _reframe_vertical(in_path: str, out_path: str, aspect_ratio: str) -> str:
             break
 
         cx, cy = anchor
-        if FACE_TRACK:
+        if mp_tracker is not None:
+            fc = mp_tracker.track(frame)
+            if fc is not None:
+                tx, ty = fc
+                track = (int(track[0] + (tx - track[0]) * smoothing),
+                         int(track[1] + (ty - track[1]) * smoothing))
+            cx, cy = track
+        elif face_cascade is not None:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(50, 50))
             if len(faces) > 0:

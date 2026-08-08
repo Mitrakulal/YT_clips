@@ -6,6 +6,7 @@ Two modes:
   * mode="local"            — yt-dlp + faster-whisper + OpenAI or Gemini + ffmpeg/opencv.
                               Self-hosted, LLM_PROVIDER selects OpenAI or Gemini.
 """
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from .clipper import crop_highlights
@@ -27,7 +28,10 @@ def _run_local(
     from .local.segment import compute_boundaries
     from .local.transcriber import transcribe_local
 
-    from .config import SEGMENTATION_SERVICE
+    from subtitles import subtitle_burn_stage
+    from thumbnail import thumbnail_stage
+
+    from .config import SEGMENTATION_SERVICE, LOCAL_OUTPUT_DIR
 
     source_path = download_youtube_local(youtube_url, fmt=download_format)
 
@@ -51,6 +55,33 @@ def _run_local(
     print(f"[pipeline/local] cropping {len(top)} of {len(all_highlights)} candidates", flush=True)
 
     shorts = crop_highlights_local(source_path, top, aspect_ratio=aspect_ratio, boundaries=boundaries)
+
+    # Finished treatment (the "upload-ready" pass): burn hook + captions,
+    # loudnorm to -14 LUFS, pad to 1080x1920, lock 30fps — the same stage the
+    # queue/publish path runs. Local mode now produces delivery-ready clips.
+    words = [w for seg in transcript.get("segments", []) for w in seg.get("words", [])]
+    for short in shorts:
+        if not short.get("clip_url"):
+            continue
+        clip = short["clip_url"]
+        captioned = str(Path(clip).with_suffix("")) + "_captioned.mp4"
+        try:
+            subtitle_burn_stage(
+                clip, words,
+                float(short["start_time"]), float(short["end_time"]),
+                captioned,
+                hook_text=short.get("title"),
+            )
+            short["clip_url"] = captioned
+            thumb = thumbnail_stage(
+                captioned, short.get("title"),
+                f"{Path(captioned).with_suffix('')}.jpg",
+                enabled=True,
+            )
+            if thumb:
+                short["thumbnail_url"] = thumb
+        except Exception as e:
+            print(f"[pipeline/local] treatment failed for {clip}: {e}", flush=True)
 
     return {
         "mode": "local",

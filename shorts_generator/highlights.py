@@ -14,6 +14,11 @@ import json
 import re
 from typing import Callable, Dict, List, Optional
 
+from .config import (
+    HL_CHUNK_OVERLAP_SECONDS,
+    HL_CHUNK_SIZE_SECONDS,
+    HL_LONG_VIDEO_THRESHOLD,
+)
 from . import muapi
 
 
@@ -61,9 +66,9 @@ Respond ONLY with valid JSON (no markdown, no explanation):
 {{"highlights":[{{"title":"string","start_time":float,"end_time":float,"score":int,"hook_sentence":"string","virality_reason":"string"}}]}}"""
 
 
-CHUNK_SIZE_SECONDS = 1200       # 20-min chunks for long videos
-LONG_VIDEO_THRESHOLD = 1800     # chunk videos longer than 30 min
-CHUNK_OVERLAP_SECONDS = 60
+CHUNK_SIZE_SECONDS = HL_CHUNK_SIZE_SECONDS       # 5-min chunks by default
+LONG_VIDEO_THRESHOLD = HL_LONG_VIDEO_THRESHOLD   # chunk videos longer than 7 min
+CHUNK_OVERLAP_SECONDS = HL_CHUNK_OVERLAP_SECONDS
 GPT_CALL_TIMEOUT_SECONDS = 300  # cap LLM polls at 5 min — a wedged call should fail fast
 MAX_HIGHLIGHT_API_ATTEMPTS = 3
 

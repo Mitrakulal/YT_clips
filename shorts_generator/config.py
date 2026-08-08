@@ -25,6 +25,18 @@ LOCAL_WHISPER_MODEL = os.getenv("LOCAL_WHISPER_MODEL", "base")
 LOCAL_WHISPER_DEVICE = os.getenv("LOCAL_WHISPER_DEVICE", "auto")  # auto / cpu / cuda
 LOCAL_OUTPUT_DIR = os.getenv("LOCAL_OUTPUT_DIR", "output")
 
+# --- Chunked ranking for long videos (fixes flat 7-9 scores) ---
+# The hardcoded 30-min threshold in highlights.py was too high for local models:
+# a 10-min interview went into ONE giant prompt and produced flat scores.
+HL_CHUNK_SIZE_SECONDS = float(os.getenv("HL_CHUNK_SIZE_SECONDS", "300"))
+HL_LONG_VIDEO_THRESHOLD = float(os.getenv("HL_LONG_VIDEO_THRESHOLD", "420"))
+HL_CHUNK_OVERLAP_SECONDS = float(os.getenv("HL_CHUNK_OVERLAP_SECONDS", "60"))
+
+# --- Karaoke captions (word-by-word pop, Hormozi-style) ---
+# When true, build_ass renders {\k}-timed word highlights (yellow fill sweeps
+# across each word as it is spoken) instead of static whole-line captions.
+KARAOKE = os.getenv("KARAOKE", "true").strip().lower() == "true"
+
 # --- Professional-output knobs (all optional, safe defaults) ---
 # 1. Clip length limits: cap 120s (user: "not more than 2min" — long enough for a
 #    complete thought/conversation, so cuts land on natural pauses, not caps),
@@ -41,7 +53,8 @@ DYNAMIC_ZOOM = os.getenv("DYNAMIC_ZOOM", "true").strip().lower() == "true"
 ZOOM_MAX = float(os.getenv("ZOOM_MAX", "0.06"))  # 6% push-in across the clip
 # Face tracking (default OFF for stability). When off, the crop stays anchored
 # to a fixed upper-center point so framing never jumps between speakers.
-FACE_TRACK = os.getenv("FACE_TRACK", "false").strip().lower() == "true"
+# Options: off | haar (OpenCV cascade) | mediapipe (BlazeFace, smoother pan)
+FACE_TRACK = os.getenv("FACE_TRACK", "off").strip().lower()
 FACE_CENTER_Y = float(os.getenv("FACE_CENTER_Y", "0.42"))
 # 5. Loudness normalization + locked frame rate on every published clip
 LOUDNESS_FILTER = os.getenv("LOUDNESS_FILTER", "loudnorm=I=-14:TP=-1.5:LRA=11")

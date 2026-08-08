@@ -22,6 +22,7 @@ from shorts_generator.config import (
     HOOK_FONT_SIZE,
     LOUDNESS_FILTER,
     OUTPUT_FPS,
+    KARAOKE,
 )
 
 # Keyword highlight colour (ASS AARRGGBB) — bright yellow, pops off the picture.
@@ -121,10 +122,35 @@ def build_ass(
         end = chunk[-1]["end"] - clip_start
         # Don't stack a caption under the hook title during the opening beat —
         # this is what was producing the doubled-subtitle look (#3).
+        # Exception: very short clips (content inside the hook zone, common for
+        # 8s crops) would lose ALL their captions; keep those.
         if HOOK_TEXT and hook_text and start < HOOK_SECONDS:
-            continue
-        text = " ".join(_highlight_tokens([w["word"] for w in chunk], keywords))
-        events.append(f"Dialogue: 0,{_ts(start)},{_ts(end)},Caption,,0,0,0,,{text}")
+            if clip_end - clip_start > HOOK_SECONDS + 2.0:
+                continue
+        if KARAOKE:
+            # Word-by-word pop (Hormozi style), built WITHOUT libass {\k} fills —
+            # those silently don't render on many ffmpeg builds. Instead, emit
+            # one Dialogue per word: the newest word is yellow, prior words stay
+            # white, so the accent visibly sweeps across the phrase. Deterministic.
+            window = chunk
+            for i, w in enumerate(window):
+                w_start = max(0.0, w["start"] - clip_start)
+                if i + 1 < len(window):
+                    w_end = max(w_start + 0.15, window[i + 1]["start"] - clip_start)
+                else:
+                    w_end = max(w_start + 0.25, end)
+                parts = []
+                for j, pw in enumerate(window[: i + 1]):
+                    seg = _escape(pw["word"])
+                    if j == i:
+                        seg = "{\\c&H00FFE6&}" + seg + "{\\c&HFFFFFF&}"
+                    parts.append(seg)
+                events.append(
+                    f"Dialogue: 0,{_ts(w_start)},{_ts(w_end)},Caption,,0,0,0,,{' '.join(parts)}"
+                )
+        else:
+            text = " ".join(_highlight_tokens([w["word"] for w in chunk], keywords))
+            events.append(f"Dialogue: 0,{_ts(start)},{_ts(end)},Caption,,0,0,0,,{text}")
 
     if HOOK_TEXT and hook_text:
         hook = _escape(" ".join(hook_text.split())[:60])
@@ -178,6 +204,10 @@ def subtitle_burn_stage(
     hook_text: Optional[str] = None,
 ) -> str:
     """Build the ASS then burn it. ASS is kept next to the output for inspection."""
+    # burn_subtitles runs ffmpeg with cwd=ass dir (Windows-colon workaround), so
+    # relative paths would resolve twice. Absolutize at the stage boundary.
+    clip_path = os.path.abspath(clip_path)
+    out_path = os.path.abspath(out_path)
     ass_path = out_path + ".ass"
     build_ass(words, clip_start, clip_end, ass_path, hook_text=hook_text)
     burn_subtitles(clip_path, ass_path, out_path)
