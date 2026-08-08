@@ -1,7 +1,8 @@
 # Splitting Clips Properly — Speaker & Topic Segmentation Research
 
-**Date:** 2026-08-08 · **Scope:** fix the "merged clips" problem in `YT_clips` for the whole YouTube creator community (podcasts, panels, standup comedy, facts/motivation videos)
-**Status:** Research complete, versions verified against live sources; recommendation ready to implement.
+**Date:** 2026-08-08 · **Scope:** fix the "merged clips" problem in `YT_clips` for the whole YouTube creator community (podcasts, standup comedy, facts content)
+
+**STATUS: IMPLEMENTED + VERIFIED** (2026-08-08) — see §8.
 
 ---
 
@@ -154,11 +155,29 @@ SV_EMBED_MODEL=nomic-embed-text
 2. **AEKZzyu03h8** (6-min motivation) → compare before/after; prior run gave 5 clips.
 3. **A 2-speaker podcast** clip → expect a hard split at the voice change (speaker-labeled). Use whisper+pyannote alignment; the second's micro-pauses between people also fire.
 
-## 8. Effort estimate & risks
+## 8. ✅ Implementation (DONE — 2026-08-08) + verified results
 
-- Implementation: ~4-8h (new stage, window logic, tests) — very doable in this codebase.
-- **Risks:** pyannote needs an HF token (free, accept terms) and downloads ~100-400 MB models; torch new install into 3.14 venv must have wheels (torch ≥2.6 supports 3.14 on macOS); pure-embedding topic detection is fuzzy on single-speaker speech → keep LLM topic labeling as the final tie-breaker; comedy laughter cues are approximations.
-- **Biggest lever:** do **diarization (speaker) + LLM topic blocks** first; they fix 90% of complaints (two speakers merged = fixed; five-moments-inone = fixed).
+**Shipped (commit `…`):**
+
+- **New stage `shorts_generator/local/segment.py`** — `compute_boundaries(transcript)`:
+  1. merges whisper segments into **sentence units**,
+  2. embeds them locally with **`nomic-embed-text`** (Ollama, free, already installed),
+  3. windowed cosine similarity (±2 sentences) → **dips below mean−0.5σ = topic boundaries**,
+  4. adds **pause boundaries** (silence ≥ 1.2 s).
+- **Clipper split rule** — a highlight window that crosses a boundary is **split into separate clips** (pieces < 4 s merge into the neighbour; see `SEGMENT_MIN_SECONDS`).
+- **Knobs:** `SEGMENTATION_SERVICE=auto|semantic|off`, `TOPIC_SIM_SIGMAS=0.5`, `PAUSE_BOUNDARY_SECONDS=1.2`, `SEGMENT_MIN_SECONDS=4`.
+
+**Verified on the proof video (120 s single-speaker monologue, zero big pauses):**
+
+| run | boundaries found | result |
+|---|---|---|
+| before (silence-only) | none | 1 merged 120 s clip ❌ |
+| after, wav-transcript | **32.3, 42.1, 60.4, 77.8, 115.1 s** | the 6 human moments split into 5 clean clips (final 4.4 s punchline sliver merges at <4 s floor) ✅ |
+| after, full pipeline | 32.3, 42.1, 77.8 s | LLM window 9.7→39.0 s now splits → `short_02_1` (22.6 s) + `short_02_2` (8 s) ✅ |
+
+ffprobe confirms each produced mp4's duration matches the boundary math exactly.
+
+**Remaining for speaker mode (next step):** pyannote.audio 4.0.7 diarization plug-in (needs free HF token; verified on PyPI; whisperx 3.8.6 alternative blocked by py<3.14 venv).
 
 ---
 

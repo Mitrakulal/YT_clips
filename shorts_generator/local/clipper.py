@@ -18,7 +18,10 @@ from ..config import (
     ZOOM_MAX,
     FACE_TRACK,
     FACE_CENTER_Y,
+    SEGMENTATION_SERVICE,
+    SEGMENT_MIN_SECONDS,
 )
+from .segment import split_window_at_boundaries
 
 
 def _ratio(aspect_ratio: str) -> float:
@@ -321,26 +324,33 @@ def crop_highlights_local(
     out_dir: Optional[str] = None,
     words: Optional[List[Dict]] = None,
     segments: Optional[List[Dict]] = None,
+    boundaries: Optional[List[float]] = None,
 ) -> List[Dict]:
     out_dir = out_dir or LOCAL_OUTPUT_DIR
     os.makedirs(out_dir, exist_ok=True)
     source_duration = words[-1]["end"] if words else None
     results: List[Dict] = []
     for i, h in enumerate(highlights, 1):
-        out_path = os.path.join(out_dir, f"short_{i:02d}.mp4")
         print(f"[clip/local] {i}/{len(highlights)}: {h.get('title', '(untitled)')}", flush=True)
+        windows = split_window_at_boundaries(
+            float(h["start_time"]), float(h["end_time"]),
+            boundaries or [], SEGMENT_MIN_SECONDS,
+        )
+        print(
+            f"[clip/local] window {h['start_time']:.2f}->{h['end_time']:.2f}s "
+            f"splits into {len(windows)} clip(s) at {len(boundaries or [])} boundaries",
+            flush=True,
+        )
         try:
-            crop_clip_local(
-                source_path,
-                float(h["start_time"]),
-                float(h["end_time"]),
-                aspect_ratio,
-                out_path,
-                words=words,
-                segments=segments,
-                source_duration=source_duration,
-            )
-            results.append({**h, "clip_url": out_path})
+            for j, (ws, we) in enumerate(windows):
+                suffix = f"_{j + 1}" if len(windows) > 1 else ""
+                out_path = os.path.join(out_dir, f"short_{i:02d}{suffix}.mp4")
+                crop_clip_local(
+                    source_path, ws, we, aspect_ratio, out_path,
+                    words=words, segments=segments,
+                    source_duration=source_duration,
+                )
+                results.append({**h, "start_time": ws, "end_time": we, "clip_url": out_path})
         except Exception as e:
             print(f"[clip/local] {i} failed: {e}", flush=True)
             results.append({**h, "clip_url": None, "error": str(e)})

@@ -36,6 +36,9 @@ cloud mode is included for when you'd rather use a hosted LLM.
 > [!TIP]
 > **Genuinely distinct clips.** Highlights are deduped on their **complete spans** *before* cropping, so `N` requested clips cover `N` different moments — no "same clip twice" filler.
 
+> [!TIP]
+> **One moment per clip — never merged.** A topic-segmentation pass (`nomic-embed-text` similarity dips + real pauses) computes **boundaries** on the source, and any highlight window that crosses one is **split into separate clips** instead of becoming one mangled Short. Your 6-moment 2-minute video becomes 6 clips, not one 120 s blob.
+
 > [!IMPORTANT]
 > **As a library-grade asset.** Big bold **hook title** burned over the opening seconds · clean, thin-outlined **captions** (≤4 words/line, key-word highlight) · **−14 LUFS** loudness (Short/Reels standard) · **30 fps** locked · **1080p** vertical reframe.
 
@@ -50,14 +53,14 @@ cloud mode is included for when you'd rather use a hosted LLM.
  queue/inbox/<job>.json
       │  drop a job → the 24/7 worker picks it up (kept alive by launchd)
       ▼
- ┌─────────────┐  ┌───────────────┐  ┌──────────────────┐
- │ 1. download │→│ 2. transcribe │→│ 3. highlight      │
- │   yt-dlp    │  │  faster-whisper│ │   local LLM ranks │
- │  (1080p)    │  │  → .srt+words │  │   → dedup spans  │
- └─────────────┘  └───────────────┘  └────────┬─────────┘
-                                              ▼
+ ┌─────────────┐  ┌───────────────┐  ┌──────────────────┐  ┌────────────────────────┐
+ │ 1. download │→│ 2. transcribe │→│ 3. segment       │→│ 4. highlight            │
+ │   yt-dlp    │  │  faster-whisper│ │  topic boundaries│ │   local LLM ranks      │
+ │  (1080p)    │  │  → .srt+words │  │  (nomic-embed)   │ │   → dedup spans        │
+ └─────────────┘  └───────────────┘  └────────┬─────────┘  └───────────┬───────────┘
+                                              ▼                         ▼
  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐
- │ 6. publish   │← │ 5. subtitles │← │ 4. crop                 │
+ │ 7. publish   │← │ 6. subtitles │← │ 5. crop                 │
  │  → published/│  │  hook+captions│  │  9:16 reframe + zoom    │
  │   + manifest │  │  (libass)    │  │  + loudnorm −14 LUFS    │
  └──────────────┘  └──────────────┘  └──────────────────────────┘
@@ -130,6 +133,10 @@ brew install ffmpeg-full                  # libass is required for captions
 | `DOWNLOAD_FORMAT` | `1080` | Preferred source resolution |
 | `KEYWORD_EMPHASIS` | `true` | Yellow key-word highlight |
 | `SUBTITLE_LANGUAGE` | — | Force `en` for English-only captions |
+| `SEGMENTATION_SERVICE` | `auto` | `off` / `semantic` / `auto` — topic-boundary pass (fixes merged clips) |
+| `TOPIC_SIM_SIGMAS` | `0.5` | Boundary threshold: std-devs below mean similarity |
+| `PAUSE_BOUNDARY_SECONDS` | `1.2` | Real silence ≥ this is a hard clip boundary |
+| `SEGMENT_MIN_SECONDS` | `4` | Split pieces under this merge back (avoids slivers) |
 
 ---
 

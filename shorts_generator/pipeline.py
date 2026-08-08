@@ -24,7 +24,10 @@ def _run_local(
     from .local.clipper import crop_highlights_local
     from .local.downloader import download_youtube_local
     from .local.llm import call_local_llm
+    from .local.segment import compute_boundaries
     from .local.transcriber import transcribe_local
+
+    from .config import SEGMENTATION_SERVICE
 
     source_path = download_youtube_local(youtube_url, fmt=download_format)
 
@@ -34,6 +37,11 @@ def _run_local(
             "Whisper produced no segments. The video may have no detectable speech."
         )
 
+    boundaries = compute_boundaries(transcript) if SEGMENTATION_SERVICE != "off" else []
+    print(f"[pipeline/local] segmentation {'on' if boundaries else 'off'}: {len(boundaries)} boundary(ies)", flush=True)
+    if boundaries:
+        print("[pipeline/local] at " + ", ".join(f"{b:.1f}s" for b in boundaries), flush=True)
+
     highlights_result = get_highlights(transcript, num_clips=num_clips, llm_fn=call_local_llm)
     all_highlights: List[Dict] = highlights_result.get("highlights", [])
     if not all_highlights:
@@ -42,7 +50,7 @@ def _run_local(
     top = sorted(all_highlights, key=lambda h: int(h.get("score", 0)), reverse=True)[:num_clips]
     print(f"[pipeline/local] cropping {len(top)} of {len(all_highlights)} candidates", flush=True)
 
-    shorts = crop_highlights_local(source_path, top, aspect_ratio=aspect_ratio)
+    shorts = crop_highlights_local(source_path, top, aspect_ratio=aspect_ratio, boundaries=boundaries)
 
     return {
         "mode": "local",

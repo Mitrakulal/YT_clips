@@ -48,6 +48,19 @@ DOWNLOAD_FORMAT = os.getenv("DOWNLOAD_FORMAT", "1080")
 KEYWORD_EMPHASIS = os.getenv("KEYWORD_EMPHASIS", "true").strip().lower() == "true"
 SUBTITLE_LANGUAGE = os.getenv("SUBTITLE_LANGUAGE", "").strip() or None
 
+# --- Topic-shift segmentation (fixes merged clips) ---
+# SEGMENTATION_SERVICE: "off" (default) | "semantic" | "auto"
+#   semantic = nomic-embed-text similarity dips (local Ollama, free)
+#   auto     = semantic + pause boundaries
+# TOPIC_SIM_SIGMAS: boundary threshold in std-devs below mean similarity
+# PAUSE_BOUNDARY_SECONDS: any real silence >= this is a hard clip boundary
+SEGMENTATION_SERVICE = os.getenv("SEGMENTATION_SERVICE", "auto").strip().lower()
+TOPIC_SIM_SIGMAS = float(os.getenv("TOPIC_SIM_SIGMAS", "0.5"))
+PAUSE_BOUNDARY_SECONDS = float(os.getenv("PAUSE_BOUNDARY_SECONDS", "1.2"))
+# Split pieces shorter than this (default 4s) merge back into the neighbour;
+# the 8s SHORTS_MIN_SECONDS quality floor stays for FULL clips.
+SEGMENT_MIN_SECONDS = float(os.getenv("SEGMENT_MIN_SECONDS", "4"))
+
 # VAD (Voice Activity Detection) settings for faster-whisper
 # Default threshold is 0.5; lower = more sensitive, higher = less sensitive
 # Default min_speech_duration_ms is 250ms; increase to avoid tiny false positives
