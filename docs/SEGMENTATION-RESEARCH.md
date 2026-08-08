@@ -177,6 +177,15 @@ SV_EMBED_MODEL=nomic-embed-text
 
 ffprobe confirms each produced mp4's duration matches the boundary math exactly.
 
+**Real-world check — 10-min interview (Nikhil Kamath × Rare Rabbit founder, 8XyiBBhmBQ0):**
+
+| run | boundaries | result |
+|---|---|---|
+| first (raw pause+topics) | **46** (~every 4 s — turn-taking pauses everywhere) | over-fragmented ❌ |
+| after `BOUNDARY_MIN_GAP_SECONDS=8` | **27** (all ≥8 s apart) | 3 LLM windows split into **9 complete shorts** (4+4+1) ✅ · LLM JSON crashed as a bare list → fixed (tolerant parser) |
+
+Scores were flat (7–9) — qwen3:14b is conservative at scale; ranking quality is the next lever, boundary correctness is solved.
+
 **Remaining for speaker mode (next step):** pyannote.audio 4.0.7 diarization plug-in (needs free HF token; verified on PyPI; whisperx 3.8.6 alternative blocked by py<3.14 venv).
 
 ---
