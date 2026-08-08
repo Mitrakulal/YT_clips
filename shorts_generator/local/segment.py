@@ -21,6 +21,7 @@ from ..config import (
     SEGMENTATION_SERVICE,
     TOPIC_SIM_SIGMAS,
     PAUSE_BOUNDARY_SECONDS,
+    BOUNDARY_MIN_GAP_SECONDS,
 )
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
@@ -196,12 +197,17 @@ def compute_boundaries(transcript: Dict) -> List[float]:
         boundaries += find_topic_boundaries(sentences, embs)
 
     boundaries += find_pause_boundaries(segments)
-    seen, out = set(), []
+    if not boundaries:
+        return []
+    # Cluster rule: no two boundaries closer than BOUNDARY_MIN_GAP_SECONDS.
+    # Turn-taking in interviews fires pauses constantly; dense clusters carry
+    # no extra signal — keep the earliest of each cluster (greedy).
+    out, last = [], -1e9
     for b in sorted(boundaries):
         b = round(float(b) + 0.04, 2)  # tiny nudge so splits never re-touch
-        if b not in seen:
-            seen.add(b)
+        if b - last >= BOUNDARY_MIN_GAP_SECONDS:
             out.append(b)
+            last = b
     return out
 
 

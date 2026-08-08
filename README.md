@@ -137,6 +137,7 @@ brew install ffmpeg-full                  # libass is required for captions
 | `TOPIC_SIM_SIGMAS` | `0.5` | Boundary threshold: std-devs below mean similarity |
 | `PAUSE_BOUNDARY_SECONDS` | `1.2` | Real silence ≥ this is a hard clip boundary |
 | `SEGMENT_MIN_SECONDS` | `4` | Split pieces under this merge back (avoids slivers) |
+| `BOUNDARY_MIN_GAP_SECONDS` | `8` | Min gap between clip boundaries (dense turn-taking clusters collapse) |
 
 ---
 

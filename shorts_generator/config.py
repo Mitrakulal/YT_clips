@@ -60,6 +60,9 @@ PAUSE_BOUNDARY_SECONDS = float(os.getenv("PAUSE_BOUNDARY_SECONDS", "1.2"))
 # Split pieces shorter than this (default 4s) merge back into the neighbour;
 # the 8s SHORTS_MIN_SECONDS quality floor stays for FULL clips.
 SEGMENT_MIN_SECONDS = float(os.getenv("SEGMENT_MIN_SECONDS", "4"))
+# No two boundaries may sit closer than this (seconds). Turn-taking in an
+# interview fires pauses constantly — cluster them and keep the strongest.
+BOUNDARY_MIN_GAP_SECONDS = float(os.getenv("BOUNDARY_MIN_GAP_SECONDS", "8"))
 
 # VAD (Voice Activity Detection) settings for faster-whisper
 # Default threshold is 0.5; lower = more sensitive, higher = less sensitive

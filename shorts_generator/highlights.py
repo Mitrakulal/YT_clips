@@ -224,6 +224,10 @@ def call_highlight_api(
         raw = llm_fn(prompt)
         try:
             parsed = _parse_json_loose(raw)
+            # Some local models (qwen3:14b on long transcripts) return a bare
+            # array instead of {"highlights": [...]} — normalise it.
+            if isinstance(parsed, list):
+                parsed = {"highlights": parsed}
             highlights = _sanitize_highlights(parsed.get("highlights"), duration=duration)
             if highlights:
                 return {"highlights": highlights}
