@@ -5,6 +5,9 @@ from ..config import (
     OPENAI_API_KEY,
     OPENAI_BASE_URL,
     OPENAI_MODEL,
+    OPENCODE_API_KEY,
+    OPENCODE_BASE_URL,
+    OPENCODE_MODEL,
     require_gemini_key,
     require_openai_key,
 )
@@ -83,6 +86,31 @@ def call_ollama_llm(prompt: str) -> str:
     return response.choices[0].message.content or ""
 
 
+def call_opencode_llm(prompt: str) -> str:
+    """Cloud backend via opencode.ai — free-tier DeepSeek V4 Flash.
+
+    OpenAI-compatible endpoint (https://opencode.ai/zen/v1), same client shape
+    as the local path. Free model is 'deepseek-v4-flash-free'; key in
+    OPENCODE_API_KEY. Local providers are untouched — this is purely additive.
+    """
+    try:
+        from openai import OpenAI  # type: ignore
+    except ImportError as e:
+        raise RuntimeError(
+            "openai is required for --mode local. Install it with:\n"
+            "    pip install -r requirements-local.txt"
+        ) from e
+
+    client = OpenAI(api_key=OPENCODE_API_KEY, base_url=OPENCODE_BASE_URL)
+    response = client.chat.completions.create(
+        model=OPENCODE_MODEL,
+        temperature=0.2,
+        messages=[{"role": "user", "content": prompt}],
+        response_format={"type": "json_object"},
+    )
+    return response.choices[0].message.content or ""
+
+
 def call_local_llm(prompt: str) -> str:
     """Dispatch to the configured local LLM provider."""
     provider = (LLM_PROVIDER or "openai").strip().lower()
@@ -92,6 +120,8 @@ def call_local_llm(prompt: str) -> str:
         return call_gemini_llm(prompt)
     if provider == "ollama":
         return call_ollama_llm(prompt)
+    if provider == "opencode":
+        return call_opencode_llm(prompt)
     raise RuntimeError(
-        f"Unknown LLM_PROVIDER={provider!r}. Use 'openai', 'gemini' or 'ollama'."
+        f"Unknown LLM_PROVIDER={provider!r}. Use 'openai', 'gemini', 'ollama' or 'opencode'."
     )
