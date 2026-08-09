@@ -120,13 +120,6 @@ def build_ass(
             continue
         start = max(0.0, chunk[0]["start"] - clip_start)
         end = chunk[-1]["end"] - clip_start
-        # Don't stack a caption under the hook title during the opening beat —
-        # this is what was producing the doubled-subtitle look (#3).
-        # Exception: very short clips (content inside the hook zone, common for
-        # 8s crops) would lose ALL their captions; keep those.
-        if HOOK_TEXT and hook_text and start < HOOK_SECONDS:
-            if clip_end - clip_start > HOOK_SECONDS + 2.0:
-                continue
         if KARAOKE:
             # Word-by-word pop (Hormozi style), built WITHOUT libass {\k} fills —
             # those silently don't render on many ffmpeg builds. Instead, emit
@@ -151,6 +144,19 @@ def build_ass(
         else:
             text = " ".join(_highlight_tokens([w["word"] for w in chunk], keywords))
             events.append(f"Dialogue: 0,{_ts(start)},{_ts(end)},Caption,,0,0,0,,{text}")
+
+    # Don't stack a caption under the hook title during the opening beat —
+    # this was what was producing the doubled-subtitle look (#3). Only drop
+    # hook-zone captions when there is a REAL beat after the hook (>=2 events
+    # or >1s of caption time beyond it); otherwise (short 1-6s highlights) the
+    # clip would lose almost everything and look mute for its first seconds.
+    if HOOK_TEXT and hook_text and events:
+        beyond = [e for e in events if _event_start_secs(e) >= HOOK_SECONDS]
+        beyond_dur = sum(
+            max(0.0, _event_end_secs(e) - _event_start_secs(e)) for e in beyond
+        )
+        if len(beyond) >= 2 or beyond_dur > 1.0:
+            events = beyond  # keep only post-hook captions
 
     if HOOK_TEXT and hook_text:
         hook = _escape(" ".join(hook_text.split())[:60])
@@ -193,6 +199,26 @@ def burn_subtitles(clip_path: str, ass_path: str, out_path: str) -> str:
     ]
     subprocess.run(cmd, check=True, cwd=os.path.dirname(os.path.abspath(ass_path)))
     return out_path
+
+
+def _event_start_secs(line: str) -> float:
+    """Start time of a Dialogue line ('Dialogue: 0,0:01:02.50,...') in seconds."""
+    try:
+        ts = line.split(",", 2)[1]
+        h, m, rest = ts.split(":")
+        return int(h) * 3600 + int(m) * 60 + float(rest)
+    except Exception:
+        return 0.0
+
+
+def _event_end_secs(line: str) -> float:
+    """End time of a Dialogue line (second comma field)."""
+    try:
+        ts = line.split(",", 3)[2]
+        h, m, rest = ts.split(":")
+        return int(h) * 3600 + int(m) * 60 + float(rest)
+    except Exception:
+        return 0.0
 
 
 def subtitle_burn_stage(

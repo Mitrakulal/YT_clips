@@ -176,9 +176,11 @@ def detect_content_type(transcript: Dict, llm_fn: LLMFn = call_muapi_llm) -> Dic
         return {"content_type": "other", "density": "medium"}
 
 
-def build_transcript_text(transcript: Dict) -> str:
+def build_transcript_text(transcript: Dict, offset: float = 0.0) -> str:
     segments = transcript.get("segments", [])
-    return "\n".join(f"[{s['start']:.1f}s] {s['text'].strip()}" for s in segments)
+    return "\n".join(
+        f"[{max(0.0, s['start'] - offset):.1f}s] {s['text'].strip()}" for s in segments
+    )
 
 
 def chunk_transcript(transcript: Dict) -> List[Dict]:
@@ -299,9 +301,16 @@ def get_highlights(
         all_highlights: List[Dict] = []
         for i, chunk in enumerate(chunks):
             offset = chunk.get("_offset", 0)
-            text = build_transcript_text(chunk)
+            text = build_transcript_text(chunk, offset=offset)
             print(f"[highlights] chunk {i + 1}/{len(chunks)} (offset {offset:.0f}s)", flush=True)
-            result = call_highlight_api(text, content_info, chunk["duration"], num_clips=num_clips, is_chunk=True, llm_fn=llm_fn)
+            # Sanitize clamps to chunk duration (relative), so allow overlap
+            # headroom: picks inside the overlap zone belong to the next chunk
+            # and get deduped against it anyway.
+            result = call_highlight_api(
+                text, content_info,
+                chunk["duration"] + CHUNK_OVERLAP_SECONDS,
+                num_clips=num_clips, is_chunk=True, llm_fn=llm_fn,
+            )
             for h in result.get("highlights", []):
                 h["start_time"] = float(h["start_time"]) + offset
                 h["end_time"] = float(h["end_time"]) + offset
