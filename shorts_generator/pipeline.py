@@ -54,6 +54,13 @@ def _run_local(
     top = sorted(all_highlights, key=lambda h: int(h.get("score", 0)), reverse=True)[:num_clips]
     print(f"[pipeline/local] cropping {len(top)} of {len(all_highlights)} candidates", flush=True)
 
+    content_type = (highlights_result.get("content_info") or {}).get("content_type", "other")
+    if content_type in ("comedy", "storytelling"):
+        # The ranker window IS the complete joke (setup→punch→laugh). Splitting
+        # at "boundaries" would chop it — pause boundaries fire on ANY >=1.2s
+        # silence, and in comedy silence == laughter, so every laugh inside a
+        # beat becomes a cut. Comedy never splits.
+        boundaries = []
     shorts = crop_highlights_local(source_path, top, aspect_ratio=aspect_ratio, boundaries=boundaries)
 
     # Finished treatment (the "upload-ready" pass): burn hook + captions,

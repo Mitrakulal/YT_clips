@@ -268,7 +268,7 @@ def call_highlight_api(
                 parsed = {"highlights": parsed}
             highlights = _sanitize_highlights(parsed.get("highlights"), duration=duration)
             if highlights:
-                return {"highlights": highlights}
+                return {"highlights": highlights, "content_info": content_info}
             last_error = "no valid highlights in response"
         except Exception as e:
             last_error = str(e)
@@ -352,4 +352,4 @@ def get_highlights(
         result = call_highlight_api(text, content_info, duration, num_clips=num_clips, llm_fn=llm_fn)
         highlights = dedupe_highlights(result.get("highlights", []))
 
-    return {"highlights": highlights}
+    return {"highlights": highlights, "content_info": content_info}
