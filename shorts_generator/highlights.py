@@ -26,7 +26,7 @@ LLMFn = Callable[[str], str]
 
 
 CONTENT_TYPE_PROMPT = """Analyze this video transcript sample and classify the content type.
-Choose one: podcast, interview, tutorial, lecture, commentary, debate, vlog, other.
+Choose one: comedy, storytelling, podcast, interview, tutorial, lecture, commentary, debate, vlog, other.
 Also estimate content density: low (mostly filler/chit-chat), medium, or high (dense info/stories).
 Respond with JSON only: {"content_type": "...", "density": "..."}"""
 
@@ -34,33 +34,46 @@ Respond with JSON only: {"content_type": "...", "density": "..."}"""
 VIRALITY_CRITERIA = """
 Virality signals to prioritize (ranked by impact):
 1. HOOK MOMENTS — statements that create immediate curiosity ("The secret is...", "Nobody talks about...", "I was completely wrong about...")
-2. EMOTIONAL PEAKS — genuine surprise, laughter, anger, vulnerability, excitement; raw unscripted reactions
+2. EMOTIONAL PEAKS — genuine surprise, laughter, anger, vulnerability, excitement; raw unscripted reactions. A punchline that makes an audience erupt is a top-tier peak.
 3. OPINION BOMBS — strong, polarizing or counter-intuitive statements that trigger agree/disagree
 4. REVELATION MOMENTS — surprising facts, stats, or confessions that reframe how the viewer thinks
 5. CONFLICT/TENSION — disagreement, pushback, or a problem being confronted head-on
 6. QUOTABLE ONE-LINERS — a sentence that works as a standalone quote card
 7. STORY PEAKS — the climax or twist of an anecdote; the payoff moment
 8. PRACTICAL VALUE — a concrete tip, hack, or insight the viewer can immediately apply
+
+For comedy and storytelling content: a highlight is only as good as its PREMISE.
+The setup that creates the tension matters as much as the punchline — a joke with
+no setup falls flat, and a setup clipped before the audience reacts feels cut off.
 """
 
 
-HIGHLIGHT_SYSTEM_PROMPT = """You are an elite short-form video editor who has studied thousands of viral clips on TikTok, Instagram Reels, and YouTube Shorts. You know exactly what makes viewers stop scrolling, watch to the end, and share.
+HIGHLIGHT_SYSTEM_PROMPT = """You are an elite short-form video editor who has studied thousands of viral clips on TikTok, Instagram Reels, and YouTube Shorts. You choose which moments become clips — and just as importantly, WHERE each clip starts and ends on the timeline.
 
 {virality_criteria}
 
 Content type: {content_type} | Density: {density}
 
-Your task: identify the most viral-worthy highlights from the transcript.
+Your task: identify the most viral-worthy highlights from the transcript, each one a COMPLETE beat with correct start_time and end_time.
 
-Rules:
-- Every highlight must open with a strong HOOK — a line that grabs attention within the first 3 seconds
-- Duration sweet spot: 45-90 seconds. Go shorter (20-44s) only for a perfect standalone one-liner. Go longer (91-180s) only when a story arc needs full context to land
-- Never cut mid-sentence or mid-thought — each clip must feel complete and self-contained
-- Clips must not overlap significantly with each other
-- Score 0-100 on viral potential (not general quality)
+## Timeline mechanics (critical — this separates pro cuts from bad ones)
+
+The transcript timestamps every spoken word. Read the GAPS between timestamps:
+- A gap of ~2-5 seconds with no words = audience laughter, applause, or reaction.
+- In comedy, the PUNCHLINE lands just BEFORE a laughter gap; the complete moment runs THROUGH that gap until the next sentence begins.
+- Ending at the punchline (before the gap) = the clip feels incomplete — the audience never reacts on screen.
+- Starting AT the punchline = the clip has no setup — nobody knows why it's funny.
+
+## Cutting rules
+- start_time = where the SETUP begins (the sentence that opens the bit). NEVER the punchline. In a story, start where the story starts, not at the climax.
+- end_time = AFTER the audience reaction — through the laughter gap, landing just before the next sentence starts. For non-comedy content, end at a complete thought.
+- Every highlight is ONE complete joke/beat: setup → build → punch → reaction. No mid-sentence cuts, no half-beats.
+- Duration: 15-60 seconds is the sweet spot. NEVER under 10s. Prefer a complete beat over a short highlight.
+- Clips must not overlap significantly with each other.
+- Score 0-100 on viral potential (not general quality): strongest hooks, emotional peaks, and story payoffs score highest.
 - {num_clips_instruction}
-- For each highlight, identify the single best "hook_sentence" — the opening line that would make someone stop scrolling
-- Explain in one sentence why this clip is viral ("virality_reason")
+- For each highlight, identify the single best "hook_sentence" — the opening line that would make someone stop scrolling.
+- Explain in one sentence why this clip is viral ("virality_reason").
 
 Respond ONLY with valid JSON (no markdown, no explanation):
 {{"highlights":[{{"title":"string","start_time":float,"end_time":float,"score":int,"hook_sentence":"string","virality_reason":"string"}}]}}"""
@@ -129,6 +142,9 @@ def _coerce_int(value: object, default: int = 0) -> int:
         return default
 
 
+MIN_HIGHLIGHT_SECONDS = 6.0  # punch-only 1-2s picks are useless for shorts — reject them
+
+
 def _sanitize_highlights(raw_highlights: object, duration: float) -> List[Dict]:
     """Normalize model output into the expected shape; skip invalid entries."""
     if not isinstance(raw_highlights, list):
@@ -144,6 +160,8 @@ def _sanitize_highlights(raw_highlights: object, duration: float) -> List[Dict]:
         end = _coerce_float(item.get("end_time"), default=-1.0)
         if start < 0 or end <= start:
             continue
+        if end - start < MIN_HIGHLIGHT_SECONDS:
+            continue  # 1.1s "punchline" windows are the #1 bad-cut cause
 
         if max_end != float("inf"):
             start = min(start, max_end)
@@ -224,6 +242,19 @@ def call_highlight_api(
         num_clips_instruction=f"Generate at least {min_clips} highlights",
     )
     base_prompt = f"{system}\n\nTranscript:\n{transcript_text}"
+
+    # Joke/beat structure guidance: for comedic or story-driven content the
+    # window must carry the WHOLE beat — setup → punch → audience reaction —
+    # not just the punchline second. Laughter shows up as gaps (~2-5s) where
+    # no words are spoken; end_time should sit AFTER that gap, not before it.
+    if content_info.get("content_type") in ("comedy", "storytelling", "other"):
+        base_prompt += (
+            "\n\nCutting rules:\n"
+            "- start_time = where the bit/setup BEGINS (setup sentence start), never the punchline.\n"
+            "- end_time = AFTER the audience laughs it off: extend past spoken-word gaps.\n"
+            "- Each highlight must be a COMPLETE joke/beat with context, not a 1-2s punchline.\n"
+            "- It is fine for a highlight to be 15-45s long."
+        )
     prompt = base_prompt
     last_error = "unknown"
 

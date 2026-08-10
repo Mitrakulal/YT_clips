@@ -21,7 +21,7 @@ OPENCODE_BASE_URL = os.getenv("OPENCODE_BASE_URL", "https://opencode.ai/zen/v1")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai").strip().lower()
-LOCAL_WHISPER_MODEL = os.getenv("LOCAL_WHISPER_MODEL", "base")
+LOCAL_WHISPER_MODEL = os.getenv("LOCAL_WHISPER_MODEL", "medium")  # small garbles Hindi; medium is the reliable floor
 LOCAL_WHISPER_DEVICE = os.getenv("LOCAL_WHISPER_DEVICE", "auto")  # auto / cpu / cuda
 LOCAL_OUTPUT_DIR = os.getenv("LOCAL_OUTPUT_DIR", "output")
 
