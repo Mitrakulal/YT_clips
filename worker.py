@@ -208,8 +208,9 @@ def run_stage_subtitles(job, state, job_dir, words_path, shorts):
                 float(short["end_time"]),
                 captioned,
                 hook_text=short.get("title"),
+                aspect_ratio=state.get("aspect_ratio", "9:16"),
             )
-            validate_clip(captioned)
+            validate_clip(captioned, aspect_ratio=state.get("aspect_ratio", "9:16"))
             short = {**short, "clip_url": captioned}
         except Exception as exc:
             short = {**short, "clip_url": None, "error": f"subtitle_burn: {exc}"}

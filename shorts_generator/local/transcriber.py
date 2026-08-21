@@ -12,11 +12,11 @@ from typing import Dict, Optional
 from ..config import LOCAL_OUTPUT_DIR, LOCAL_WHISPER_DEVICE, LOCAL_WHISPER_MODEL
 
 
-def _transcript_cache_path(media_path: str) -> Path:
+def _transcript_cache_path(media_path: str, cache_dir: Optional[str] = None) -> Path:
     """Return the .srt cache path for a media file."""
-    cache_dir = Path(LOCAL_OUTPUT_DIR)
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    return cache_dir / (Path(media_path).stem + ".srt")
+    resolved_cache_dir = Path(cache_dir or LOCAL_OUTPUT_DIR)
+    resolved_cache_dir.mkdir(parents=True, exist_ok=True)
+    return resolved_cache_dir / (Path(media_path).stem + ".srt")
 
 
 def _format_srt_timestamp(seconds: float) -> str:
@@ -38,8 +38,8 @@ def _parse_srt_timestamp(value: str) -> float:
     return hours * 3600 + minutes * 60 + seconds + (millis / 1000.0)
 
 
-def _write_srt_cache(media_path: str, transcript: Dict) -> Path:
-    cache_path = _transcript_cache_path(media_path)
+def _write_srt_cache(media_path: str, transcript: Dict, cache_dir: Optional[str] = None) -> Path:
+    cache_path = _transcript_cache_path(media_path, cache_dir=cache_dir)
     lines = []
     for idx, segment in enumerate(transcript.get("segments", []), start=1):
         start = _format_srt_timestamp(float(segment["start"]))
@@ -96,9 +96,9 @@ def _resolve_device() -> str:
     return "cpu"
 
 
-def transcribe_local(media_path: str, language: Optional[str] = None) -> Dict:
+def transcribe_local(media_path: str, language: Optional[str] = None, cache_dir: Optional[str] = None) -> Dict:
     """Run faster-whisper on a local file path, caching the result as .srt."""
-    cache_path = _transcript_cache_path(media_path)
+    cache_path = _transcript_cache_path(media_path, cache_dir=cache_dir)
     if cache_path.exists():
         source_mtime = os.path.getmtime(media_path)
         cache_mtime = cache_path.stat().st_mtime
@@ -167,7 +167,7 @@ def transcribe_local(media_path: str, language: Optional[str] = None) -> Dict:
     duration = float(getattr(info, "duration", 0.0)) or (segments[-1]["end"] if segments else 0.0)
     print(f"[transcribe/local] {len(segments)} segments, {duration:.0f}s of audio", flush=True)
     transcript = {"duration": duration, "segments": segments}
-    cache_path = _write_srt_cache(media_path, transcript)
+    cache_path = _write_srt_cache(media_path, transcript, cache_dir=cache_dir)
     print(f"[transcribe/local] wrote cache: {cache_path}", flush=True)
     words_path = cache_path.with_suffix(".words.json")
     words_path.write_text(json.dumps(all_words, ensure_ascii=False), encoding="utf-8")

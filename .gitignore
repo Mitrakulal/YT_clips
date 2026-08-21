@@ -12,3 +12,5 @@ queue/
 published/
 logs/
 seen.json
+# local dashboard runtime state (SQLite DB, signing secret, per-job source and clips)
+studio_data/

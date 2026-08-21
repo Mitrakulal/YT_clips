@@ -21,7 +21,16 @@ def probe_media(path: str) -> Dict:
     return json.loads(result)
 
 
-def validate_clip(path: str, min_seconds: float = 1.0, max_seconds: float = COHERENCE_MAX_SECONDS) -> Dict:
+def expected_dimensions(aspect_ratio: str) -> tuple[int, int]:
+    return (1080, 1080) if aspect_ratio == "1:1" else (1080, 1920)
+
+
+def validate_clip(
+    path: str,
+    min_seconds: float = 1.0,
+    max_seconds: float = COHERENCE_MAX_SECONDS,
+    aspect_ratio: str = "9:16",
+) -> Dict:
     clip = Path(path)
     if not clip.exists() or clip.stat().st_size <= 0:
         raise RuntimeError(f"clip artifact missing or empty: {path}")
@@ -33,8 +42,9 @@ def validate_clip(path: str, min_seconds: float = 1.0, max_seconds: float = COHE
         raise RuntimeError(f"clip has no video stream: {path}")
     if not audio:
         raise RuntimeError(f"clip has no audio stream: {path}")
-    if [video.get("width"), video.get("height")] != [1080, 1920]:
-        raise RuntimeError(f"clip is not 1080x1920: {path}")
+    target_width, target_height = expected_dimensions(aspect_ratio)
+    if [video.get("width"), video.get("height")] != [target_width, target_height]:
+        raise RuntimeError(f"clip is not {target_width}x{target_height}: {path}")
     fps = video.get("r_frame_rate")
     if fps != f"{OUTPUT_FPS}/1":
         raise RuntimeError(f"clip is not {OUTPUT_FPS} fps: {path} ({fps})")

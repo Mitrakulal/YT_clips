@@ -4,11 +4,11 @@ Inputs per highlight:
   - words:      list of {"start","end","word"} in the SOURCE video timeline
   - clip_start: source-time where the clip begins
   - clip_end:   source-time where the clip ends
-  - clip_path:  the 9:16 mp4 produced by the crop stage
+  - clip_path:  the reframed mp4 produced by the crop stage
   - out_path:   where the captioned mp4 goes
 
-The ASS file is rendered at 1080x1920; ffmpeg scales each clip into that canvas,
-so caption positions are consistent across clips regardless of source resolution.
+The ASS file is rendered at the selected delivery canvas, so caption positions
+remain consistent across clips regardless of source resolution.
 """
 import os
 import re
@@ -30,13 +30,13 @@ _KEYWORD_COL = "&H00FFDC00&"
 
 ASS_HEADER = """[Script Info]
 ScriptType: v4.00+
-PlayResX: 1080
-PlayResY: 1920
+PlayResX: __WIDTH__
+PlayResY: __HEIGHT__
 ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Caption,Arial,84,&H00FFFFFF,&H00FFE600,&H00000000,&H90000000,-1,0,0,0,100,100,0.6,0,1,4,1,2,40,40,230,1
+Style: Caption,Arial,84,&H00FFFFFF,&H00FFE600,&H00000000,&H90000000,-1,0,0,0,100,100,0.6,0,1,4,1,2,40,40,__CAPTION_MARGIN__,1
 Style: Hook,Arial,__HOOKSIZE__,&H00FFFFFF,&H0000FFC8,&H00000000,&HB0000000,-1,0,0,0,100,100,1,0,4,2,0,5,60,60,0,1
 """
 
@@ -88,13 +88,21 @@ def build_ass(
     clip_end: float,
     out_path: str,
     hook_text: Optional[str] = None,
+    canvas_size: tuple[int, int] = (1080, 1920),
 ) -> str:
     """Group clip-relative words into <=8-word / <=40-char chunks; one Dialogue
     line per chunk. Keywords matching the hook/title are colour-emphasised (#7).
     If hook_text is set and HOOK_TEXT is on, a big bold hook line is burned over
     the first HOOK_SECONDS of the clip (#3).
     """
-    header = ASS_HEADER.replace("__HOOKSIZE__", str(HOOK_FONT_SIZE))
+    width, height = canvas_size
+    caption_margin = 230 if height > width else 125
+    header = (
+        ASS_HEADER.replace("__HOOKSIZE__", str(HOOK_FONT_SIZE))
+        .replace("__WIDTH__", str(width))
+        .replace("__HEIGHT__", str(height))
+        .replace("__CAPTION_MARGIN__", str(caption_margin))
+    )
 
     keywords: set = set()
     if KEYWORD_EMPHASIS and hook_text:
@@ -175,8 +183,13 @@ def build_ass(
     return out_path
 
 
-def burn_subtitles(clip_path: str, ass_path: str, out_path: str) -> str:
-    """Burn the ASS onto the clip; canvas is padded to 1080x1920, frame rate
+def burn_subtitles(
+    clip_path: str,
+    ass_path: str,
+    out_path: str,
+    canvas_size: tuple[int, int] = (1080, 1920),
+) -> str:
+    """Burn the ASS onto the selected target canvas, frame rate
     locked to OUTPUT_FPS (#5) and audio loudness-normalized (#5).
 
     ffmpeg's ass= filter parses ':' as an option separator, which breaks absolute
@@ -184,13 +197,14 @@ def burn_subtitles(clip_path: str, ass_path: str, out_path: str) -> str:
     the basename avoids colons in the filter graph entirely and works on both
     Windows and macOS (plain POSIX paths work there too).
     """
+    width, height = canvas_size
     cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
         "-i", clip_path,
         "-vf",
         f"ass={os.path.basename(ass_path)},"
-        f"scale=1080:1920:flags=lanczos:force_original_aspect_ratio=decrease,"
-        f"pad=1080:1920:(ow-iw)/2:(oh-ih)/2,"
+        f"scale={width}:{height}:flags=lanczos:force_original_aspect_ratio=decrease,"
+        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,"
         f"fps={OUTPUT_FPS}",
         "-af", LOUDNESS_FILTER,
         "-c:v", "libx264", "-preset", "fast", "-crf", "20",
@@ -228,6 +242,7 @@ def subtitle_burn_stage(
     clip_end: float,
     out_path: str,
     hook_text: Optional[str] = None,
+    aspect_ratio: str = "9:16",
 ) -> str:
     """Build the ASS then burn it. ASS is kept next to the output for inspection."""
     # burn_subtitles runs ffmpeg with cwd=ass dir (Windows-colon workaround), so
@@ -235,6 +250,7 @@ def subtitle_burn_stage(
     clip_path = os.path.abspath(clip_path)
     out_path = os.path.abspath(out_path)
     ass_path = out_path + ".ass"
-    build_ass(words, clip_start, clip_end, ass_path, hook_text=hook_text)
-    burn_subtitles(clip_path, ass_path, out_path)
+    canvas_size = (1080, 1080) if aspect_ratio == "1:1" else (1080, 1920)
+    build_ass(words, clip_start, clip_end, ass_path, hook_text=hook_text, canvas_size=canvas_size)
+    burn_subtitles(clip_path, ass_path, out_path, canvas_size=canvas_size)
     return out_path

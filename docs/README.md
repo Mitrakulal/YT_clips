@@ -4,7 +4,8 @@ This directory contains the design history and the current production operating 
 
 | File | Purpose |
 |---|---|
-| `PRODUCTION_GUIDE.md` | Current segmentation-first architecture, setup, queue operation, artifact contract, and acceptance criteria. Start here. |
+| `LOCAL_STUDIO.md` | Start here for the fully local Mac Mini dashboard, setup, automatic startup, stage flow, private storage, and recovery. |
+| `PRODUCTION_GUIDE.md` | Segmentation-first pipeline architecture, queue operation, artifact contract, and acceptance criteria. |
 | `SEGMENTATION-RESEARCH.md` | Research and validation history for topic/pause boundary detection. |
 | `01-RESEARCH-REPORT.md` | Original local-first architecture and deployment rationale. |
 | `02-IMPLEMENTATION-PLAN.md` | Historical phased implementation plan and verification notes. Some path/status text is historical; the current code and `PRODUCTION_GUIDE.md` are authoritative. |
