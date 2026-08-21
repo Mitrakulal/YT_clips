@@ -30,6 +30,7 @@ def _run_local(
 
     from subtitles import subtitle_burn_stage
     from thumbnail import thumbnail_stage
+    from .local.validate import validate_clip
 
     from .config import SEGMENTATION_SERVICE, LOCAL_OUTPUT_DIR
 
@@ -46,7 +47,12 @@ def _run_local(
     if boundaries:
         print("[pipeline/local] at " + ", ".join(f"{b:.1f}s" for b in boundaries), flush=True)
 
-    highlights_result = get_highlights(transcript, num_clips=num_clips, llm_fn=call_local_llm)
+    highlights_result = get_highlights(
+        transcript,
+        num_clips=num_clips,
+        llm_fn=call_local_llm,
+        boundaries=boundaries,
+    )
     all_highlights: List[Dict] = highlights_result.get("highlights", [])
     if not all_highlights:
         raise RuntimeError("Highlight generator returned zero clips.")
@@ -54,14 +60,9 @@ def _run_local(
     top = sorted(all_highlights, key=lambda h: int(h.get("score", 0)), reverse=True)[:num_clips]
     print(f"[pipeline/local] cropping {len(top)} of {len(all_highlights)} candidates", flush=True)
 
-    content_type = (highlights_result.get("content_info") or {}).get("content_type", "other")
-    if content_type in ("comedy", "storytelling"):
-        # The ranker window IS the complete joke (setup→punch→laugh). Splitting
-        # at "boundaries" would chop it — pause boundaries fire on ANY >=1.2s
-        # silence, and in comedy silence == laughter, so every laugh inside a
-        # beat becomes a cut. Comedy never splits.
-        boundaries = []
-    shorts = crop_highlights_local(source_path, top, aspect_ratio=aspect_ratio, boundaries=boundaries)
+    # Use the same effective boundaries that candidate construction used.
+    render_boundaries = highlights_result.get("effective_boundaries", boundaries)
+    shorts = crop_highlights_local(source_path, top, aspect_ratio=aspect_ratio, boundaries=render_boundaries)
 
     # Finished treatment (the "upload-ready" pass): burn hook + captions,
     # loudnorm to -14 LUFS, pad to 1080x1920, lock 30fps — the same stage the
@@ -79,6 +80,7 @@ def _run_local(
                 captioned,
                 hook_text=short.get("title"),
             )
+            validate_clip(captioned)
             short["clip_url"] = captioned
             thumb = thumbnail_stage(
                 captioned, short.get("title"),
@@ -88,6 +90,8 @@ def _run_local(
             if thumb:
                 short["thumbnail_url"] = thumb
         except Exception as e:
+            short["clip_url"] = None
+            short["error"] = f"treatment: {e}"
             print(f"[pipeline/local] treatment failed for {clip}: {e}", flush=True)
 
     return {
@@ -114,7 +118,12 @@ def _run_api(
             "Whisper produced no segments. The video may have no detectable speech."
         )
 
-    highlights_result = get_highlights(transcript, num_clips=num_clips, llm_fn=call_muapi_llm)
+    highlights_result = get_highlights(
+        transcript,
+        num_clips=num_clips,
+        llm_fn=call_muapi_llm,
+        boundaries=[],
+    )
     all_highlights: List[Dict] = highlights_result.get("highlights", [])
     if not all_highlights:
         raise RuntimeError("Highlight generator returned zero clips.")

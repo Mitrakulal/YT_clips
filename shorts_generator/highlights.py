@@ -20,6 +20,7 @@ from .config import (
     HL_LONG_VIDEO_THRESHOLD,
 )
 from . import muapi
+from .coherence import build_coherent_candidates, candidate_context
 
 
 LLMFn = Callable[[str], str]
@@ -311,45 +312,119 @@ def dedupe_highlights(highlights: List[Dict]) -> List[Dict]:
     return kept
 
 
+CANDIDATE_RANKING_PROMPT = """You are selecting short-video moments from a pre-segmented transcript.
+Every candidate below is already a contiguous, context-complete unit. You MUST select
+only by candidate_id; never invent timestamps, merge candidates, or split candidates.
+Prefer a complete setup -> development -> payoff/reaction. Reject filler, greetings,
+mid-thought fragments, and segments whose meaning depends on missing context.
+
+Content type: {content_type} | Density: {density}
+Select up to {num_clips} candidates, returning the strongest distinct moments.
+For each selected candidate return a title, score 0-100, hook_sentence copied from
+its text, and one-sentence virality_reason.
+
+Return JSON only:
+{{"highlights":[{{"candidate_id":"candidate_001","title":"...","score":0,"hook_sentence":"...","virality_reason":"..."}}]}}
+
+Candidates:
+{candidates}
+"""
+
+
+def _candidate_prompt(candidates: List[Dict], content_info: Dict[str, str], num_clips: int) -> str:
+    rows = []
+    for i, candidate in enumerate(candidates):
+        ctx = candidate_context(candidates, i)
+        rows.append(
+            f"[{candidate['candidate_id']}] {candidate['start_time']:.2f}-{candidate['end_time']:.2f}s\n"
+            f"BEFORE: {ctx['before'][:400]}\n"
+            f"TEXT: {candidate['text'][:1400]}\n"
+            f"AFTER: {ctx['after'][:400]}"
+        )
+    return CANDIDATE_RANKING_PROMPT.format(
+        content_type=content_info.get("content_type", "other"),
+        density=content_info.get("density", "medium"),
+        num_clips=num_clips,
+        candidates="\n\n".join(rows),
+    )
+
+
+def _rank_candidates(
+    candidates: List[Dict],
+    content_info: Dict[str, str],
+    num_clips: int,
+    llm_fn: LLMFn,
+) -> List[Dict]:
+    if not candidates:
+        return []
+    prompt = _candidate_prompt(candidates, content_info, max(num_clips * 2, num_clips))
+    last_error = "unknown"
+    for attempt in range(1, MAX_HIGHLIGHT_API_ATTEMPTS + 1):
+        try:
+            parsed = _parse_json_loose(llm_fn(prompt))
+            if isinstance(parsed, list):
+                parsed = {"highlights": parsed}
+            raw_items = parsed.get("highlights") if isinstance(parsed, dict) else []
+            by_id = {c["candidate_id"]: c for c in candidates}
+            ranked: List[Dict] = []
+            used = set()
+            for item in raw_items if isinstance(raw_items, list) else []:
+                if not isinstance(item, dict):
+                    continue
+                cid = str(item.get("candidate_id", "")).strip()
+                candidate = by_id.get(cid)
+                if not candidate or cid in used:
+                    continue
+                used.add(cid)
+                ranked.append({
+                    "title": str(item.get("title") or candidate["text"][:70]).strip(),
+                    "start_time": candidate["start_time"],
+                    "end_time": candidate["end_time"],
+                    "score": max(0, min(100, _coerce_int(item.get("score"), 0))),
+                    "hook_sentence": str(item.get("hook_sentence") or candidate["text"][:180]).strip(),
+                    "virality_reason": str(item.get("virality_reason") or "Complete candidate selected by context-aware ranking").strip(),
+                    "candidate_id": cid,
+                    "candidate_text": candidate["text"],
+                })
+            if ranked:
+                return ranked
+            last_error = "model returned no valid candidate ids"
+        except Exception as exc:
+            last_error = str(exc)
+        if attempt < MAX_HIGHLIGHT_API_ATTEMPTS:
+            print(f"[highlights] invalid candidate ranking on attempt {attempt}/{MAX_HIGHLIGHT_API_ATTEMPTS}; retrying", flush=True)
+            prompt += "\nIMPORTANT: candidate_id must exactly match one of the supplied IDs. Do not output timestamps."
+    raise RuntimeError(f"Candidate ranking failed after {MAX_HIGHLIGHT_API_ATTEMPTS} attempts: {last_error}")
+
+
 def get_highlights(
     transcript: Dict,
     num_clips: int = 3,
     llm_fn: Optional[LLMFn] = None,
+    boundaries: Optional[List[float]] = None,
 ) -> Dict:
-    """Main entry point — returns {highlights: [...]} sorted by score.
-
-    `llm_fn` swaps the underlying LLM. Defaults to MuAPI gpt-5-mini; local
-    mode passes in a local LLM-backed callable.
-    """
+    """Build safe coherent candidates first, then rank only those candidates."""
     llm_fn = llm_fn or call_muapi_llm
-    duration = transcript.get("duration", 0)
+    duration = float(transcript.get("duration", 0) or 0)
     content_info = detect_content_type(transcript, llm_fn=llm_fn)
-    print(f"[highlights] content={content_info.get('content_type')} density={content_info.get('density')} duration={duration:.0f}s", flush=True)
-
-    if duration >= LONG_VIDEO_THRESHOLD:
-        chunks = chunk_transcript(transcript)
-        print(f"[highlights] long video — splitting into {len(chunks)} chunks", flush=True)
-        all_highlights: List[Dict] = []
-        for i, chunk in enumerate(chunks):
-            offset = chunk.get("_offset", 0)
-            text = build_transcript_text(chunk, offset=offset)
-            print(f"[highlights] chunk {i + 1}/{len(chunks)} (offset {offset:.0f}s)", flush=True)
-            # Sanitize clamps to chunk duration (relative), so allow overlap
-            # headroom: picks inside the overlap zone belong to the next chunk
-            # and get deduped against it anyway.
-            result = call_highlight_api(
-                text, content_info,
-                chunk["duration"] + CHUNK_OVERLAP_SECONDS,
-                num_clips=num_clips, is_chunk=True, llm_fn=llm_fn,
-            )
-            for h in result.get("highlights", []):
-                h["start_time"] = float(h["start_time"]) + offset
-                h["end_time"] = float(h["end_time"]) + offset
-                all_highlights.append(h)
-        highlights = dedupe_highlights(all_highlights)
-    else:
-        text = build_transcript_text(transcript)
-        result = call_highlight_api(text, content_info, duration, num_clips=num_clips, llm_fn=llm_fn)
-        highlights = dedupe_highlights(result.get("highlights", []))
-
-    return {"highlights": highlights, "content_info": content_info}
+    effective_boundaries = list(boundaries or [])
+    if content_info.get("content_type") in ("comedy", "storytelling"):
+        # A laughter pause is part of the beat. Do not split setup -> punch ->
+        # reaction into separate clips for these formats.
+        effective_boundaries = []
+    candidates = build_coherent_candidates(transcript, boundaries=effective_boundaries)
+    print(
+        f"[highlights] content={content_info.get('content_type')} density={content_info.get('density')} "
+        f"duration={duration:.0f}s candidates={len(candidates)}",
+        flush=True,
+    )
+    if not candidates:
+        raise RuntimeError("No coherent transcript candidates were built.")
+    highlights = _rank_candidates(candidates, content_info, num_clips, llm_fn)
+    highlights = dedupe_highlights(highlights)
+    return {
+        "highlights": highlights,
+        "content_info": content_info,
+        "candidates": candidates,
+        "effective_boundaries": effective_boundaries,
+    }

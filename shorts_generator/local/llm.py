@@ -113,7 +113,7 @@ def call_opencode_llm(prompt: str) -> str:
 
 def call_local_llm(prompt: str) -> str:
     """Dispatch to the configured local LLM provider."""
-    provider = (LLM_PROVIDER or "openai").strip().lower()
+    provider = (LLM_PROVIDER or "ollama").strip().lower()
     if provider == "openai":
         return call_openai_llm(prompt)
     if provider == "gemini":

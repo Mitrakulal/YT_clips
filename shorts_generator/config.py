@@ -12,7 +12,7 @@ POLL_TIMEOUT_SECONDS = float(os.getenv("MUAPI_POLL_TIMEOUT", "600"))
 
 # Local-mode (--mode local) settings — only consulted when running offline.
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "qwen3:14b")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "http://localhost:11434/v1").strip()
 # Cloud provider (free tier via opencode.ai) — ADDED alongside local, not replacing it.
 OPENCODE_API_KEY = os.getenv("OPENCODE_API_KEY", "").strip()
@@ -20,9 +20,9 @@ OPENCODE_MODEL = os.getenv("OPENCODE_MODEL", "deepseek-v4-flash-free")
 OPENCODE_BASE_URL = os.getenv("OPENCODE_BASE_URL", "https://opencode.ai/zen/v1").strip()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai").strip().lower()
-LOCAL_WHISPER_MODEL = os.getenv("LOCAL_WHISPER_MODEL", "medium")  # small garbles Hindi; medium is the reliable floor
-LOCAL_WHISPER_DEVICE = os.getenv("LOCAL_WHISPER_DEVICE", "auto")  # auto / cpu / cuda
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama").strip().lower()
+LOCAL_WHISPER_MODEL = os.getenv("LOCAL_WHISPER_MODEL", "small")
+LOCAL_WHISPER_DEVICE = os.getenv("LOCAL_WHISPER_DEVICE", "cpu")  # auto / cpu / cuda
 LOCAL_OUTPUT_DIR = os.getenv("LOCAL_OUTPUT_DIR", "output")
 
 # --- Chunked ranking for long videos (fixes flat 7-9 scores) ---
@@ -43,6 +43,11 @@ KARAOKE = os.getenv("KARAOKE", "true").strip().lower() == "true"
 #    floor 8s (reached by pulling START back, never breaking the ending).
 SHORTS_MAX_SECONDS = float(os.getenv("SHORTS_MAX_SECONDS", "120"))
 SHORTS_MIN_SECONDS = float(os.getenv("SHORTS_MIN_SECONDS", "8"))
+# Candidate construction happens before ranking; candidates are complete units,
+# not arbitrary timestamp windows.
+COHERENCE_MIN_SECONDS = float(os.getenv("COHERENCE_MIN_SECONDS", "12"))
+COHERENCE_TARGET_SECONDS = float(os.getenv("COHERENCE_TARGET_SECONDS", "45"))
+COHERENCE_MAX_SECONDS = float(os.getenv("COHERENCE_MAX_SECONDS", "120"))
 # 2. Sentence-boundary trimming is ALWAYS on (aligns cuts to word boundaries)
 # 3. Hook text overlay: big bold title burned into the first seconds of each clip
 HOOK_TEXT = os.getenv("HOOK_TEXT", "true").strip().lower() == "true"

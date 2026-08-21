@@ -216,22 +216,30 @@ def split_window_at_boundaries(
     boundaries: List[float],
     min_dur: float,
 ) -> List[Tuple[float, float]]:
-    """Split [start,end] at any contained boundary.
-
-    A piece shorter than min_dur merges into the NEIGHBOR piece (so the user
-    never gets a sub-8 second sliver); at least one piece is always returned.
-    """
-    inside = [b for b in boundaries if start < b < end]
+    """Split [start,end] without leaving short leading/middle/trailing slivers."""
+    inside = sorted(b for b in boundaries if start < b < end)
     if not inside:
         return [(start, end)]
     cuts = [start] + inside + [end]
     pieces = [(cuts[i], cuts[i + 1]) for i in range(len(cuts) - 1)]
-    merged: List[Tuple[float, float]] = []
-    for p in pieces:
-        if merged and (p[1] - p[0]) < min_dur:
-            # garbage into the previous piece
-            s0, e0 = merged[-1]
-            merged[-1] = (s0, p[1])
+    while len(pieces) > 1:
+        short_index = next(
+            (i for i, (s, e) in enumerate(pieces) if (e - s) < min_dur),
+            None,
+        )
+        if short_index is None:
+            break
+        i = short_index
+        if i == 0:
+            pieces[1] = (pieces[0][0], pieces[1][1])
+        elif i == len(pieces) - 1:
+            pieces[i - 1] = (pieces[i - 1][0], pieces[i][1])
         else:
-            merged.append(p)
-    return merged
+            left_dur = pieces[i - 1][1] - pieces[i - 1][0]
+            right_dur = pieces[i + 1][1] - pieces[i + 1][0]
+            if left_dur <= right_dur:
+                pieces[i - 1] = (pieces[i - 1][0], pieces[i][1])
+            else:
+                pieces[i + 1] = (pieces[i][0], pieces[i + 1][1])
+        del pieces[i]
+    return pieces or [(start, end)]

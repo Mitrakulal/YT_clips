@@ -68,6 +68,10 @@ cloud mode is included for when you'd rather use a hosted LLM.
 
 Workers are **crash-safe**: each job's progress lives in `jobs/<id>/state.json`, finished stages are cached, and in-flight jobs are auto-rescued on boot. A broken job never takes down the loop.
 
+### Production selection rule
+
+The LLM no longer invents arbitrary start and end timestamps. The pipeline first builds contiguous transcript candidates from sentence units, pauses, and topic boundaries; the LLM selects candidate IDs and scores them. The selected candidate's safe span is then rendered unchanged. Short leading/trailing fragments are merged, and comedy/storytelling pauses are preserved as part of the complete beat. See [`docs/PRODUCTION_GUIDE.md`](docs/PRODUCTION_GUIDE.md) for the operating contract and acceptance criteria.
+
 ---
 
 ## 🚀 Quickstart
@@ -111,8 +115,8 @@ brew install ffmpeg-full                  # libass is required for captions
 | Transcription | faster-whisper `small` (CPU) | hosted |
 | Highlight ranking | **Ollama** `qwen3:14b` | MuAPI |
 | Vertical reframe + zoom | ✅ | ✅ |
-| Hook title + styled captions | ✅ | ✅ |
-| −14 LUFS + 30 fps | ✅ | ✅ |
+| Hook title + styled captions | ✅ | Not applied by this repository |
+| −14 LUFS + 30 fps | ✅ | Not applied by this repository |
 | Source quality | 1080p, resolution-aware cache | 1080p |
 
 ---
@@ -125,7 +129,10 @@ brew install ffmpeg-full                  # libass is required for captions
 | `OPENAI_BASE_URL` | `http://localhost:11434/v1` | Ollama OpenAI-compat endpoint |
 | `LOCAL_WHISPER_MODEL` | `small` | Whisper size (accuracy vs. speed) |
 | `SHORTS_MAX_SECONDS` | `120` | Longest clip (~complete point) |
-| `SHORTS_MIN_SECONDS` | `8` | Shortest clip (pulls START back, keeps ending) |
+| `SHORTS_MIN_SECONDS` | `8` | Shortest final clip |
+| `COHERENCE_MIN_SECONDS` | `12` | Minimum complete candidate before ranking |
+| `COHERENCE_TARGET_SECONDS` | `45` | Preferred candidate duration |
+| `COHERENCE_MAX_SECONDS` | `120` | Maximum candidate context |
 | `HOOK_TEXT / HOOK_SECONDS / HOOK_FONT_SIZE` | `true / 3 / 72` | Hook-title overlay |
 | `DYNAMIC_ZOOM / ZOOM_MAX` | `true / 0.06` | Slow push-in (no face-tracking) |
 | `LOUDNESS_FILTER` | `loudnorm=I=-14:TP=-1.5:LRA=11` | −14 LUFS audio |
@@ -149,10 +156,12 @@ worker.py                 24/7 queue pipeline worker (runs under launchd)
 stage.py                  per-stage state helpers
 subtitles.py              ASS caption/hook builder + burn
 shorts_generator/         pipeline package
+  coherence.py            candidate-first context and span construction
   local/                  local-mode implementations
     downloader.py         yt-dlp (resolution-aware cache)
     transcriber.py        faster-whisper wrapper (+ cache)
     llm.py                strict-JSON local-LLM highlight ranking
+    segment.py            topic/pause boundaries and safe splitting
     clipper.py            vertical reframe + sentence alignment + zoom
   config.py               all knobs (env-driven)
 docs/                      design notes (research, implementation plan, Mac handoff)

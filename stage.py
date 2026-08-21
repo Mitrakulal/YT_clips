@@ -19,11 +19,12 @@ def new_state(job: Dict[str, Any]) -> Dict[str, Any]:
         "source_url": job.get("source_url", ""),
         "num_clips": int(job.get("num_clips", 3)),
         "aspect_ratio": job.get("aspect_ratio", "9:16"),
-        "format": job.get("format", "480"),
+        "format": job.get("format"),
         "status": "running",  # pending | running | done | failed
         "stages": {
             "download": {},
             "transcribe": {},
+            "segment": {},
             "highlight_llm": {},
             "crop": {},
             "subtitle_burn": {},
@@ -52,7 +53,8 @@ def save_state(path: Path, state: Dict[str, Any]) -> None:
 
 def stage_done(state: Dict[str, Any], name: str) -> bool:
     info = state["stages"].get(name) or {}
-    return info.get("status") == "done" and bool(info.get("artifact"))
+    artifact = info.get("artifact")
+    return info.get("status") == "done" and bool(artifact) and Path(str(artifact)).exists()
 
 
 def mark_stage(
