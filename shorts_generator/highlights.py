@@ -18,6 +18,7 @@ from .config import (
     HL_CHUNK_OVERLAP_SECONDS,
     HL_CHUNK_SIZE_SECONDS,
     HL_LONG_VIDEO_THRESHOLD,
+    RANKING_MAX_CANDIDATES_PER_CALL,
 )
 from . import muapi
 from .coherence import build_coherent_candidates, candidate_context
@@ -332,14 +333,20 @@ Candidates:
 
 
 def _candidate_prompt(candidates: List[Dict], content_info: Dict[str, str], num_clips: int) -> str:
+    def excerpt(text: str) -> str:
+        text = text.strip()
+        if len(text) <= 1000:
+            return text
+        return f"{text[:700]}\n[… middle omitted …]\n{text[-300:]}"
+
     rows = []
     for i, candidate in enumerate(candidates):
         ctx = candidate_context(candidates, i)
         rows.append(
             f"[{candidate['candidate_id']}] {candidate['start_time']:.2f}-{candidate['end_time']:.2f}s\n"
-            f"BEFORE: {ctx['before'][:400]}\n"
-            f"TEXT: {candidate['text'][:1400]}\n"
-            f"AFTER: {ctx['after'][:400]}"
+            f"BEFORE: {ctx['before'][:180]}\n"
+            f"TEXT: {excerpt(candidate['text'])}\n"
+            f"AFTER: {ctx['after'][:180]}"
         )
     return CANDIDATE_RANKING_PROMPT.format(
         content_type=content_info.get("content_type", "other"),
@@ -349,7 +356,7 @@ def _candidate_prompt(candidates: List[Dict], content_info: Dict[str, str], num_
     )
 
 
-def _rank_candidates(
+def _rank_candidate_batch(
     candidates: List[Dict],
     content_info: Dict[str, str],
     num_clips: int,
@@ -395,6 +402,23 @@ def _rank_candidates(
             print(f"[highlights] invalid candidate ranking on attempt {attempt}/{MAX_HIGHLIGHT_API_ATTEMPTS}; retrying", flush=True)
             prompt += "\nIMPORTANT: candidate_id must exactly match one of the supplied IDs. Do not output timestamps."
     raise RuntimeError(f"Candidate ranking failed after {MAX_HIGHLIGHT_API_ATTEMPTS} attempts: {last_error}")
+
+
+def _rank_candidates(
+    candidates: List[Dict],
+    content_info: Dict[str, str],
+    num_clips: int,
+    llm_fn: LLMFn,
+) -> List[Dict]:
+    """Rank bounded candidate batches to keep a local model within its context window."""
+    if not candidates:
+        return []
+    batch_size = max(1, RANKING_MAX_CANDIDATES_PER_CALL)
+    ranked: List[Dict] = []
+    for offset in range(0, len(candidates), batch_size):
+        batch = candidates[offset:offset + batch_size]
+        ranked.extend(_rank_candidate_batch(batch, content_info, min(num_clips * 2, len(batch)), llm_fn))
+    return dedupe_highlights(ranked)[:num_clips]
 
 
 def get_highlights(

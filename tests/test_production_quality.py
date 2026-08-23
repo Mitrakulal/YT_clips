@@ -1,4 +1,5 @@
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -62,6 +63,41 @@ class ProductionQualityTests(unittest.TestCase):
         self.assertEqual(selected["end_time"], candidate["end_time"])
         self.assertNotEqual(selected["end_time"], 999)
         self.assertGreaterEqual(len(calls), 2)
+
+    def test_ranker_batches_candidates_without_moving_safe_spans(self):
+        transcript = {
+            "duration": 246,
+            "segments": [
+                {"start": i * 13, "end": i * 13 + 12, "text": f"Complete thought {i}."}
+                for i in range(18)
+            ],
+        }
+        prompts = []
+
+        def fake_llm(prompt):
+            prompts.append(prompt)
+            if prompt.startswith("Analyze this video transcript sample"):
+                return '{"content_type":"tutorial","density":"high"}'
+            candidate_id = re.findall(r"\[(candidate_\d+)\]", prompt)[0]
+            score = 100 - int(candidate_id.rsplit("_", 1)[1])
+            return json.dumps({"highlights": [{
+                "candidate_id": candidate_id,
+                "title": candidate_id,
+                "score": score,
+                "hook_sentence": "hook",
+                "virality_reason": "reason",
+            }]})
+
+        boundaries = [i * 13 - 0.5 for i in range(1, 18)]
+        result = get_highlights(transcript, num_clips=2, llm_fn=fake_llm, boundaries=boundaries)
+        ranking_prompts = [prompt for prompt in prompts if "pre-segmented transcript" in prompt]
+        self.assertEqual(len(ranking_prompts), 3)
+        self.assertEqual(len(result["highlights"]), 2)
+        candidate_map = {candidate["candidate_id"]: candidate for candidate in result["candidates"]}
+        for selected in result["highlights"]:
+            candidate = candidate_map[selected["candidate_id"]]
+            self.assertEqual(selected["start_time"], candidate["start_time"])
+            self.assertEqual(selected["end_time"], candidate["end_time"])
 
     def test_comedy_keeps_internal_pause_boundaries_inside_one_candidate(self):
         transcript = {

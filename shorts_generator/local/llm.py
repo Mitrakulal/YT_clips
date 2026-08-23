@@ -1,10 +1,17 @@
 """Local LLM backend — OpenAI, Gemini, or local Ollama, selected by LLM_PROVIDER."""
+import json
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
+
 from ..config import (
     GEMINI_MODEL,
     LLM_PROVIDER,
     OPENAI_API_KEY,
     OPENAI_BASE_URL,
     OPENAI_MODEL,
+    OLLAMA_NUM_PREDICT,
+    OLLAMA_REQUEST_TIMEOUT_SECONDS,
     OPENCODE_API_KEY,
     OPENCODE_BASE_URL,
     OPENCODE_MODEL,
@@ -56,34 +63,46 @@ def call_gemini_llm(prompt: str) -> str:
 
 
 def call_ollama_llm(prompt: str) -> str:
-    """Ollama backend — OpenAI-compatible /v1 endpoint, free + local.
+    """Call Ollama's native chat API with reliable JSON and empty-output diagnostics.
 
-    Verified against Ollama's OpenAI-compat API (docs.ollama.com/api/openai-compatibility):
-    it accepts any api_key and ignores it. `think:false` disables qwen3 reasoning blocks
-    so the JSON parsed in highlights.py stays clean; _parse_json_loose catches leftovers.
+    The native endpoint is more stable than the OpenAI-compat response-format path
+    on local qwen3 installations. ``format='json'`` requires valid JSON and
+    ``think=False`` prevents reasoning text from contaminating the result.
     """
+    parsed = urlparse(OPENAI_BASE_URL or "http://localhost:11434/v1")
+    api_url = f"{parsed.scheme or 'http'}://{parsed.netloc or 'localhost:11434'}/api/chat"
+    payload = {
+        "model": OPENAI_MODEL,
+        "stream": False,
+        "think": False,
+        "format": "json",
+        "options": {"temperature": 0.2, "num_predict": OLLAMA_NUM_PREDICT},
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    request = Request(
+        api_url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
     try:
-        from openai import OpenAI  # type: ignore
-    except ImportError as e:
-        raise RuntimeError(
-            "openai is required for --mode local. Install it with:\n"
-            "    pip install -r requirements-local.txt"
-        ) from e
+        with urlopen(request, timeout=OLLAMA_REQUEST_TIMEOUT_SECONDS) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:500]
+        raise RuntimeError(f"Ollama request failed with HTTP {exc.code}: {detail}") from exc
+    except URLError as exc:
+        raise RuntimeError(f"Could not reach local Ollama at {api_url}: {exc.reason}") from exc
 
-    client = OpenAI(
-        api_key=OPENAI_API_KEY or "ollama",
-        base_url=OPENAI_BASE_URL or "http://localhost:11434/v1",
-    )
-    response = client.chat.completions.create(
-        model=OPENAI_MODEL,
-        temperature=0.2,
-        messages=[{"role": "user", "content": prompt}],
-        extra_body={"think": False},
-        # Ollama OpenAI-compat: force the model into schema-free JSON mode.
-        # Without this, qwen3 drifts into bare arrays / prose on long prompts.
-        response_format={"type": "json_object"},
-    )
-    return response.choices[0].message.content or ""
+    message = body.get("message") if isinstance(body, dict) else None
+    content = message.get("content") if isinstance(message, dict) else None
+    if not isinstance(content, str) or not content.strip():
+        done_reason = body.get("done_reason") if isinstance(body, dict) else None
+        raise RuntimeError(
+            "Ollama returned no ranking content "
+            f"(model={OPENAI_MODEL}, done_reason={done_reason!r})."
+        )
+    return content.strip()
 
 
 def call_opencode_llm(prompt: str) -> str:

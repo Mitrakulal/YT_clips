@@ -24,6 +24,9 @@ LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama").strip().lower()
 LOCAL_WHISPER_MODEL = os.getenv("LOCAL_WHISPER_MODEL", "small")
 LOCAL_WHISPER_DEVICE = os.getenv("LOCAL_WHISPER_DEVICE", "cpu")  # auto / cpu / cuda
 LOCAL_OUTPUT_DIR = os.getenv("LOCAL_OUTPUT_DIR", "output")
+OLLAMA_REQUEST_TIMEOUT_SECONDS = float(os.getenv("OLLAMA_REQUEST_TIMEOUT_SECONDS", "900"))
+OLLAMA_NUM_PREDICT = int(os.getenv("OLLAMA_NUM_PREDICT", "2048"))
+RANKING_MAX_CANDIDATES_PER_CALL = int(os.getenv("RANKING_MAX_CANDIDATES_PER_CALL", "8"))
 
 # --- Chunked ranking for long videos (fixes flat 7-9 scores) ---
 # The hardcoded 30-min threshold in highlights.py was too high for local models:
