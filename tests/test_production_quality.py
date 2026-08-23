@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from shorts_generator.coherence import build_coherent_candidates
+from shorts_generator.coherence import build_coherent_candidates, build_human_editor_candidates
 from shorts_generator.highlights import get_highlights
 from shorts_generator.local.clipper import crop_highlights_local
 from shorts_generator.local.segment import split_window_at_boundaries
@@ -114,12 +114,51 @@ class ProductionQualityTests(unittest.TestCase):
         def fake_llm(prompt):
             if prompt.startswith("Analyze this video transcript sample"):
                 return '{"content_type":"comedy","density":"medium"}'
-            return '{"highlights":[{"candidate_id":"candidate_001","title":"Complete joke","score":95}]}'
+            candidate_id = re.findall(r"\[(editorial_\d+)\]", prompt)[0]
+            return '{"highlights":[{"candidate_id":"' + candidate_id + '","title":"Complete joke","score":95}]}'
 
         result = get_highlights(transcript, num_clips=1, llm_fn=fake_llm, boundaries=[12.5, 30.5])
         self.assertEqual(result["effective_boundaries"], [])
-        self.assertEqual(len(result["candidates"]), 1)
+        self.assertGreaterEqual(len(result["candidates"]), 1)
         self.assertIn("punchline", result["candidates"][0]["text"])
+
+    def test_human_editor_candidates_skip_soft_start_and_offer_payoff_ending(self):
+        transcript = {
+            "duration": 27,
+            "segments": [
+                {"start": 0, "end": 7, "text": "I thought it was more like Cheerios."},
+                {"start": 8, "end": 14, "text": "Who are you here with tonight?"},
+                {"start": 15, "end": 22, "text": "They are swingers, so I guess this is a two-and-a-half-some."},
+                {"start": 23, "end": 27, "text": "Anyway, let me tell you about my dog."},
+            ],
+        }
+        candidates = build_human_editor_candidates(transcript)
+        self.assertTrue(candidates)
+        self.assertTrue(all(candidate["start_time"] != 0 for candidate in candidates))
+        payoff_candidate = next(candidate for candidate in candidates if candidate["start_time"] == 8 and candidate["end_time"] == 22)
+        self.assertIn("two-and-a-half-some", payoff_candidate["text"])
+        self.assertNotIn("my dog", payoff_candidate["text"])
+
+    def test_comedy_ranking_uses_human_editor_candidate_edges(self):
+        transcript = {
+            "duration": 27,
+            "segments": [
+                {"start": 0, "end": 7, "text": "I thought it was more like Cheerios."},
+                {"start": 8, "end": 14, "text": "Who are you here with tonight?"},
+                {"start": 15, "end": 22, "text": "They are swingers, so I guess this is a two-and-a-half-some."},
+                {"start": 23, "end": 27, "text": "Anyway, let me tell you about my dog."},
+            ],
+        }
+
+        def fake_llm(prompt):
+            if prompt.startswith("Analyze this video transcript sample"):
+                return '{"content_type":"comedy","density":"medium"}'
+            candidate_id = re.findall(r"\[(editorial_\d+)\]", prompt)[0]
+            return '{"highlights":[{"candidate_id":"' + candidate_id + '","score":95}]}'
+
+        result = get_highlights(transcript, num_clips=1, llm_fn=fake_llm, boundaries=[7.5, 14.5, 22.5])
+        self.assertTrue(result["highlights"][0]["candidate_id"].startswith("editorial_"))
+        self.assertNotEqual(result["highlights"][0]["start_time"], 0)
 
     def test_renderer_never_splits_a_ranked_complete_candidate(self):
         highlight = {

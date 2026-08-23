@@ -6,11 +6,16 @@ transcript units and safe boundary points.
 """
 from __future__ import annotations
 
+import re
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .config import COHERENCE_MAX_SECONDS, COHERENCE_MIN_SECONDS, COHERENCE_TARGET_SECONDS, SHORTS_MIN_SECONDS
 
 _SENTENCE_ENDINGS = ".!?…。！？"
+_CONTEXT_DEPENDENT_OPENING = re.compile(
+    r"^\s*(?:and|but|so|because|also|then|anyway|okay|yeah|yes|no|right|well|i mean|i thought it was|it was|that's|this is)\b",
+    re.IGNORECASE,
+)
 
 
 def _valid_segments(transcript: Dict) -> List[Dict]:
@@ -169,6 +174,59 @@ def build_coherent_candidates(
         candidate = _section_to_candidate(section, index)
         if candidate["end_time"] - candidate["start_time"] >= effective_min:
             candidates.append(candidate)
+    return candidates
+
+
+def build_human_editor_candidates(
+    transcript: Dict,
+    min_seconds: float = SHORTS_MIN_SECONDS,
+    max_seconds: float = COHERENCE_MAX_SECONDS,
+    pause_seconds: float = 1.2,
+) -> List[Dict]:
+    """Build editorial candidates for comedy/storytelling without arbitrary cuts.
+
+    A human editor does not start a crowd-work clip on an answer, a reaction, or
+    a connective fragment just because it happened to be exciting. This helper
+    starts only at likely standalone premises, then offers every later complete
+    transcript-unit ending in the allowed duration range. The ranker can choose
+    the strongest setup→payoff/reaction endpoint, but can never move either edge
+    inside a spoken unit or force the next unrelated topic into the clip.
+    """
+    units = build_transcript_units(transcript, pause_seconds=pause_seconds)
+    candidates: List[Dict] = []
+    index = 1
+    for start_index, start_unit in enumerate(units):
+        if _CONTEXT_DEPENDENT_OPENING.match(start_unit["text"]):
+            continue
+        for end_index in range(start_index, len(units)):
+            end_unit = units[end_index]
+            duration = float(end_unit["end"]) - float(start_unit["start"])
+            if duration > max_seconds:
+                break
+            if duration < min_seconds:
+                continue
+            # If the transcript has multiple units, a lone eligible first unit
+            # is usually setup without its payoff. Human editors wait for the
+            # next complete unit instead of publishing that dangling premise.
+            if len(units) > 1 and end_index == start_index:
+                continue
+            candidates.append(
+                {
+                    "candidate_id": f"editorial_{index:03d}",
+                    "start_time": float(start_unit["start"]),
+                    "end_time": float(end_unit["end"]),
+                    "text": " ".join(unit["text"] for unit in units[start_index:end_index + 1]).strip(),
+                    "unit_count": end_index - start_index + 1,
+                }
+            )
+            index += 1
+    if not candidates and units:
+        # Preserve one-unit monologues as a fallback rather than emitting no
+        # clip at all; the normal multi-unit path above remains the preference.
+        for unit in units:
+            duration = float(unit["end"]) - float(unit["start"])
+            if min_seconds <= duration <= max_seconds and not _CONTEXT_DEPENDENT_OPENING.match(unit["text"]):
+                candidates.append(_section_to_candidate([unit], len(candidates) + 1, prefix="editorial"))
     return candidates
 
 

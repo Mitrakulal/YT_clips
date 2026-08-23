@@ -21,7 +21,7 @@ from .config import (
     RANKING_MAX_CANDIDATES_PER_CALL,
 )
 from . import muapi
-from .coherence import build_coherent_candidates, candidate_context
+from .coherence import build_coherent_candidates, build_human_editor_candidates, candidate_context
 
 
 LLMFn = Callable[[str], str]
@@ -462,7 +462,12 @@ def get_highlights(
         # A laughter pause is part of the beat. Do not split setup -> punch ->
         # reaction into separate clips for these formats.
         effective_boundaries = []
-    candidates = build_coherent_candidates(transcript, boundaries=effective_boundaries)
+        # Build starts and ends like a human editor: never open on an answer or
+        # reaction fragment, and offer complete-unit endings so ranking can stop
+        # immediately after the payoff instead of swallowing the next topic.
+        candidates = build_human_editor_candidates(transcript)
+    else:
+        candidates = build_coherent_candidates(transcript, boundaries=effective_boundaries)
     print(
         f"[highlights] content={content_info.get('content_type')} density={content_info.get('density')} "
         f"duration={duration:.0f}s candidates={len(candidates)}",
