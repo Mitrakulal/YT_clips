@@ -114,7 +114,7 @@ class ProductionQualityTests(unittest.TestCase):
         def fake_llm(prompt):
             if prompt.startswith("Analyze this video transcript sample"):
                 return '{"content_type":"comedy","density":"medium"}'
-            candidate_id = re.findall(r"\[(editorial_\d+)\]", prompt)[0]
+            candidate_id = re.findall(r"\[(candidate_\d+)\]", prompt)[0]
             return '{"highlights":[{"candidate_id":"' + candidate_id + '","title":"Complete joke","score":95}]}'
 
         result = get_highlights(transcript, num_clips=1, llm_fn=fake_llm, boundaries=[12.5, 30.5])
@@ -153,12 +153,50 @@ class ProductionQualityTests(unittest.TestCase):
         def fake_llm(prompt):
             if prompt.startswith("Analyze this video transcript sample"):
                 return '{"content_type":"comedy","density":"medium"}'
-            candidate_id = re.findall(r"\[(editorial_\d+)\]", prompt)[0]
+            candidate_id = re.findall(r"\[(candidate_\d+)\]", prompt)[0]
             return '{"highlights":[{"candidate_id":"' + candidate_id + '","score":95}]}'
 
         result = get_highlights(transcript, num_clips=1, llm_fn=fake_llm, boundaries=[7.5, 14.5, 22.5])
-        self.assertTrue(result["highlights"][0]["candidate_id"].startswith("editorial_"))
+        self.assertTrue(result["highlights"][0]["candidate_id"].startswith("candidate_"))
         self.assertNotEqual(result["highlights"][0]["start_time"], 0)
+
+    def test_interview_candidates_skip_contextual_start_and_stop_at_topic_boundary(self):
+        transcript = {
+            "duration": 34,
+            "segments": [
+                {"start": 0, "end": 7, "text": "So that was the moment I knew I had a problem."},
+                {"start": 8, "end": 16, "text": "I deleted Instagram after it started changing how I saw my life."},
+                {"start": 17, "end": 24, "text": "The break helped me feel present again."},
+                {"start": 26, "end": 34, "text": "My next film was the hardest project I have ever made."},
+            ],
+        }
+        candidates = build_human_editor_candidates(transcript, boundaries=[24.5])
+        selected = next(candidate for candidate in candidates if candidate["start_time"] == 8 and candidate["end_time"] == 24)
+        self.assertIn("present again", selected["text"])
+        self.assertNotIn("next film", selected["text"])
+        self.assertTrue(all(candidate["start_time"] != 0 for candidate in candidates))
+
+    def test_interview_ranking_uses_generalized_editorial_candidate_edges(self):
+        transcript = {
+            "duration": 34,
+            "segments": [
+                {"start": 0, "end": 7, "text": "So that was the moment I knew I had a problem."},
+                {"start": 8, "end": 16, "text": "I deleted Instagram after it started changing how I saw my life."},
+                {"start": 17, "end": 24, "text": "The break helped me feel present again."},
+                {"start": 26, "end": 34, "text": "My next film was the hardest project I have ever made."},
+            ],
+        }
+
+        def fake_llm(prompt):
+            if prompt.startswith("Analyze this video transcript sample"):
+                return '{"content_type":"interview","density":"medium"}'
+            candidate_id = re.findall(r"\[(candidate_\d+)\]", prompt)[0]
+            return '{"highlights":[{"candidate_id":"' + candidate_id + '","score":95}]}'
+
+        result = get_highlights(transcript, num_clips=1, llm_fn=fake_llm, boundaries=[24.5])
+        self.assertTrue(result["highlights"][0]["candidate_id"].startswith("candidate_"))
+        self.assertNotEqual(result["highlights"][0]["start_time"], 0)
+        self.assertLessEqual(result["highlights"][0]["end_time"], 24)
 
     def test_renderer_never_splits_a_ranked_complete_candidate(self):
         highlight = {
@@ -217,7 +255,7 @@ class ProductionQualityTests(unittest.TestCase):
         get_highlights(transcript, num_clips=1, llm_fn=fake_llm, boundaries=[14.5])
         self.assertTrue(any("opening audit" in prompt and "ending audit" in prompt for prompt in prompts))
 
-    def test_ranker_prefers_clear_standalone_opening_over_soft_continuation(self):
+    def test_ranker_excludes_soft_continuation_when_clear_standalone_candidate_exists(self):
         transcript = {
             "duration": 32,
             "segments": [
@@ -232,8 +270,9 @@ class ProductionQualityTests(unittest.TestCase):
             return '{"highlights":[{"candidate_id":"candidate_001","score":95},{"candidate_id":"candidate_002","score":90}]}'
 
         result = get_highlights(transcript, num_clips=1, llm_fn=fake_llm, boundaries=[15.5])
-        self.assertEqual(result["highlights"][0]["candidate_id"], "candidate_002")
-        self.assertEqual(result["highlights"][0]["score"], 90)
+        self.assertEqual(result["highlights"][0]["candidate_id"], "candidate_001")
+        self.assertEqual(result["highlights"][0]["score"], 95)
+        self.assertEqual(result["highlights"][0]["start_time"], 16)
 
     def test_stage_done_requires_artifact(self):
         with tempfile.TemporaryDirectory() as td:

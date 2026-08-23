@@ -182,6 +182,7 @@ def build_human_editor_candidates(
     min_seconds: float = SHORTS_MIN_SECONDS,
     max_seconds: float = COHERENCE_MAX_SECONDS,
     pause_seconds: float = 1.2,
+    boundaries: Optional[Iterable[float]] = None,
 ) -> List[Dict]:
     """Build editorial candidates for comedy/storytelling without arbitrary cuts.
 
@@ -193,6 +194,7 @@ def build_human_editor_candidates(
     inside a spoken unit or force the next unrelated topic into the clip.
     """
     units = build_transcript_units(transcript, pause_seconds=pause_seconds)
+    boundary_values = sorted(float(boundary) for boundary in (boundaries or []))
     candidates: List[Dict] = []
     index = 1
     for start_index, start_unit in enumerate(units):
@@ -200,6 +202,15 @@ def build_human_editor_candidates(
             continue
         for end_index in range(start_index, len(units)):
             end_unit = units[end_index]
+            # For non-comedy sources, semantic/pause boundaries signal a topic
+            # change. Do not construct a candidate that crosses one, because a
+            # human editor would not carry an unrelated next answer into the
+            # current clip merely to make it longer.
+            if end_index > start_index and any(
+                units[end_index - 1]["end"] <= boundary <= end_unit["start"]
+                for boundary in boundary_values
+            ):
+                break
             duration = float(end_unit["end"]) - float(start_unit["start"])
             if duration > max_seconds:
                 break
@@ -212,7 +223,7 @@ def build_human_editor_candidates(
                 continue
             candidates.append(
                 {
-                    "candidate_id": f"editorial_{index:03d}",
+                    "candidate_id": f"candidate_{index:03d}",
                     "start_time": float(start_unit["start"]),
                     "end_time": float(end_unit["end"]),
                     "text": " ".join(unit["text"] for unit in units[start_index:end_index + 1]).strip(),
@@ -226,7 +237,7 @@ def build_human_editor_candidates(
         for unit in units:
             duration = float(unit["end"]) - float(unit["start"])
             if min_seconds <= duration <= max_seconds and not _CONTEXT_DEPENDENT_OPENING.match(unit["text"]):
-                candidates.append(_section_to_candidate([unit], len(candidates) + 1, prefix="editorial"))
+                candidates.append(_section_to_candidate([unit], len(candidates) + 1, prefix="candidate"))
     return candidates
 
 

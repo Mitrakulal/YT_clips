@@ -467,7 +467,10 @@ def get_highlights(
         # immediately after the payoff instead of swallowing the next topic.
         candidates = build_human_editor_candidates(transcript)
     else:
-        candidates = build_coherent_candidates(transcript, boundaries=effective_boundaries)
+        # Keep semantic/pause topic changes for interviews, podcasts, tutorials,
+        # and other content, while applying the same standalone-start and
+        # complete-unit-ending discipline as the comedy path.
+        candidates = build_human_editor_candidates(transcript, boundaries=effective_boundaries)
     print(
         f"[highlights] content={content_info.get('content_type')} density={content_info.get('density')} "
         f"duration={duration:.0f}s candidates={len(candidates)}",
