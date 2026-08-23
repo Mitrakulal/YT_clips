@@ -198,6 +198,50 @@ class ProductionQualityTests(unittest.TestCase):
         self.assertNotEqual(result["highlights"][0]["start_time"], 0)
         self.assertLessEqual(result["highlights"][0]["end_time"], 24)
 
+    def test_podcast_ranking_skips_soft_opening_and_stops_before_next_topic(self):
+        transcript = {
+            "duration": 34,
+            "segments": [
+                {"start": 0, "end": 7, "text": "So that was the point where everything changed."},
+                {"start": 8, "end": 16, "text": "I stopped checking comments because they were changing how I worked."},
+                {"start": 17, "end": 25, "text": "That decision gave me time to focus on the people in the room."},
+                {"start": 27, "end": 34, "text": "The business side of touring is a completely separate issue."},
+            ],
+        }
+
+        def fake_llm(prompt):
+            if prompt.startswith("Analyze this video transcript sample"):
+                return '{"content_type":"podcast","density":"medium"}'
+            candidate_id = re.findall(r"\[(candidate_\d+)\]", prompt)[0]
+            return '{"highlights":[{"candidate_id":"' + candidate_id + '","score":95}]}'
+
+        result = get_highlights(transcript, num_clips=1, llm_fn=fake_llm, boundaries=[25.5])
+        selected = result["highlights"][0]
+        self.assertEqual(selected["start_time"], 8)
+        self.assertLessEqual(selected["end_time"], 25)
+
+    def test_tutorial_ranking_keeps_complete_solution_inside_one_topic(self):
+        transcript = {
+            "duration": 34,
+            "segments": [
+                {"start": 0, "end": 7, "text": "And that is why the first attempt normally fails."},
+                {"start": 8, "end": 16, "text": "To fix it, clear the cache before restarting the local service."},
+                {"start": 17, "end": 25, "text": "After the restart, verify the dashboard responds before submitting another job."},
+                {"start": 27, "end": 34, "text": "Choosing a cloud provider is the next configuration decision."},
+            ],
+        }
+
+        def fake_llm(prompt):
+            if prompt.startswith("Analyze this video transcript sample"):
+                return '{"content_type":"tutorial","density":"high"}'
+            candidate_id = re.findall(r"\[(candidate_\d+)\]", prompt)[0]
+            return '{"highlights":[{"candidate_id":"' + candidate_id + '","score":95}]}'
+
+        result = get_highlights(transcript, num_clips=1, llm_fn=fake_llm, boundaries=[25.5])
+        selected = result["highlights"][0]
+        self.assertEqual(selected["start_time"], 8)
+        self.assertLessEqual(selected["end_time"], 25)
+
     def test_renderer_never_splits_a_ranked_complete_candidate(self):
         highlight = {
             "title": "A complete joke",
