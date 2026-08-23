@@ -26,6 +26,12 @@ LOCAL_WHISPER_DEVICE = os.getenv("LOCAL_WHISPER_DEVICE", "cpu")  # auto / cpu / 
 LOCAL_OUTPUT_DIR = os.getenv("LOCAL_OUTPUT_DIR", "output")
 OLLAMA_REQUEST_TIMEOUT_SECONDS = float(os.getenv("OLLAMA_REQUEST_TIMEOUT_SECONDS", "900"))
 OLLAMA_NUM_PREDICT = int(os.getenv("OLLAMA_NUM_PREDICT", "2048"))
+# Context window for local chat calls. Default Ollama (4096) silently truncates
+# Hinglish/Hindi transcripts — Devanagari tokenizes ~3x denser than English, so a
+# full 8-candidate ranking batch (~5.7k tokens) overflows and the instructions get
+# cut off; the model then just echoes transcript text back instead of ranking.
+# 8192 keeps the whole prompt intact while still fitting 14B on an M-series 16GB GPU.
+OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
 RANKING_MAX_CANDIDATES_PER_CALL = int(os.getenv("RANKING_MAX_CANDIDATES_PER_CALL", "8"))
 
 # --- Chunked ranking for long videos (fixes flat 7-9 scores) ---

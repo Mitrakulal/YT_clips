@@ -321,11 +321,14 @@ mid-thought fragments, and segments whose meaning depends on missing context.
 
 Content type: {content_type} | Density: {density}
 Select up to {num_clips} candidates, returning the strongest distinct moments.
-For each selected candidate return a title, score 0-100, hook_sentence copied from
-its text, and one-sentence virality_reason.
+Score each selected candidate 0-100 (100 = most viral).
 
-Return JSON only:
-{{"highlights":[{{"candidate_id":"candidate_001","title":"...","score":0,"hook_sentence":"...","virality_reason":"..."}}]}}
+LANGUAGE / OUTPUT RULES (critical):
+- Candidate texts may be in Hindi, English, or code-mixed Hinglish. Understand them freely.
+- Do NOT translate, repeat, quote, summarise, or echo any candidate text anywhere in your output.
+- Return ONLY compact ranking JSON in exactly this shape — no titles, no hooks,
+  no reasons, no extra keys, no commentary:
+{{"highlights":[{{"candidate_id":"candidate_001","score":85}}]}}
 
 Candidates:
 {candidates}

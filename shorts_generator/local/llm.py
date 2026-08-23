@@ -10,6 +10,7 @@ from ..config import (
     OPENAI_API_KEY,
     OPENAI_BASE_URL,
     OPENAI_MODEL,
+    OLLAMA_NUM_CTX,
     OLLAMA_NUM_PREDICT,
     OLLAMA_REQUEST_TIMEOUT_SECONDS,
     OPENCODE_API_KEY,
@@ -76,7 +77,7 @@ def call_ollama_llm(prompt: str) -> str:
         "stream": False,
         "think": False,
         "format": "json",
-        "options": {"temperature": 0.2, "num_predict": OLLAMA_NUM_PREDICT},
+        "options": {"temperature": 0.2, "num_predict": OLLAMA_NUM_PREDICT, "num_ctx": OLLAMA_NUM_CTX},
         "messages": [{"role": "user", "content": prompt}],
     }
     request = Request(
