@@ -5,6 +5,7 @@ This directory contains the design history and the current production operating 
 | File | Purpose |
 |---|---|
 | `LOCAL_STUDIO.md` | Start here for the fully local Mac Mini dashboard, setup, automatic startup, stage flow, private storage, and recovery. |
+| `AUTOCLIP_COMPARISON.md` | Evidence-based decision record comparing AutoClip with YT_clips and documenting accepted, deferred, and rejected ideas. |
 | `PRODUCTION_GUIDE.md` | Segmentation-first pipeline architecture, queue operation, artifact contract, and acceptance criteria. |
 | `SEGMENTATION-RESEARCH.md` | Research and validation history for topic/pause boundary detection. |
 | `01-RESEARCH-REPORT.md` | Original local-first architecture and deployment rationale. |
