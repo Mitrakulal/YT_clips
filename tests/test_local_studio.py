@@ -32,11 +32,13 @@ class LocalStudioTests(unittest.TestCase):
             "num_clips": 3,
             "aspect_ratio": "9:16",
             "quality": "1080",
+            "caption_mode": "source",
         })
         self.assertEqual(response.status_code, 201)
         job = self.client.get(f"/api/jobs/{response.json['id']}").json
         self.assertEqual([stage["stage"] for stage in job["stages"]], local_studio.ALL_STAGES)
         self.assertEqual(job["status"], "queued")
+        self.assertEqual(job["caption_mode"], "source")
 
     def test_rejects_non_youtube_source(self):
         response = self.client.post("/api/jobs", json={
@@ -95,11 +97,10 @@ class LocalStudioTests(unittest.TestCase):
             connection.execute("INSERT INTO preserved_note (message) VALUES ('keep me')")
         local_studio.init_storage()
         with local_studio.db() as connection:
-            migration = connection.execute("SELECT version, filename FROM schema_migrations").fetchone()
+            migrations = connection.execute("SELECT version, filename FROM schema_migrations ORDER BY version").fetchall()
             preserved = connection.execute("SELECT message FROM preserved_note").fetchone()
             jobs_table = connection.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='jobs'").fetchone()
-        self.assertEqual(migration["version"], 1)
-        self.assertEqual(migration["filename"], "001_initial.sql")
+        self.assertEqual([(migration["version"], migration["filename"]) for migration in migrations], [(1, "001_initial.sql"), (2, "002_caption_mode.sql")])
         self.assertEqual(preserved["message"], "keep me")
         self.assertIsNotNone(jobs_table)
 
@@ -113,6 +114,12 @@ class LocalStudioTests(unittest.TestCase):
         self.assertIn("cache:'no-store'", local_studio.PAGE_TEMPLATE)
         self.assertIn("scheduleJobPoll", local_studio.PAGE_TEMPLATE)
         self.assertIn("visibilitychange", local_studio.PAGE_TEMPLATE)
+
+    def test_dashboard_exposes_source_caption_preservation_option(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Use source captions", response.data)
+        self.assertIn(b"caption_mode", response.data)
 
 
 if __name__ == "__main__":

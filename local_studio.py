@@ -197,7 +197,7 @@ def safe_youtube_url(value: str) -> bool:
     return parsed.scheme in {"http", "https"} and host in {"youtube.com", "m.youtube.com", "youtu.be"}
 
 
-def create_job(source_url: str, num_clips: int, aspect_ratio: str, quality: str) -> str:
+def create_job(source_url: str, num_clips: int, aspect_ratio: str, quality: str, caption_mode: str = "generated") -> str:
     source_url = source_url.strip()
     if not safe_youtube_url(source_url):
         raise ValueError("Enter a valid YouTube or youtu.be URL.")
@@ -207,14 +207,16 @@ def create_job(source_url: str, num_clips: int, aspect_ratio: str, quality: str)
         raise ValueError("Aspect ratio must be 9:16 or 1:1.")
     if quality not in {"720", "1080"}:
         raise ValueError("Quality must be 720p or 1080p.")
+    if caption_mode not in {"generated", "source"}:
+        raise ValueError("Caption mode must be generated or source.")
     job_id = uuid.uuid4().hex[:12]
     output_dir = JOBS_ROOT / job_id
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = now()
     with db() as connection:
         connection.execute(
-            "INSERT INTO jobs (id, source_url, num_clips, aspect_ratio, quality, status, active_stage, created_at, output_dir) VALUES (?, ?, ?, ?, ?, 'queued', 'queued', ?, ?)",
-            (job_id, source_url, num_clips, aspect_ratio, quality, timestamp, str(output_dir)),
+            "INSERT INTO jobs (id, source_url, num_clips, aspect_ratio, quality, caption_mode, status, active_stage, created_at, output_dir) VALUES (?, ?, ?, ?, ?, ?, 'queued', 'queued', ?, ?)",
+            (job_id, source_url, num_clips, aspect_ratio, quality, caption_mode, timestamp, str(output_dir)),
         )
         for stage in ALL_STAGES:
             status = "active" if stage == "queued" else "pending"
@@ -387,6 +389,7 @@ def run_job(job: Dict[str, Any]) -> None:
             mode="local",
             output_dir=str(output_dir),
             progress_callback=progress,
+            caption_mode=str(job["caption_mode"] or "generated"),
         )
         count = persist_results(job_id, result)
         set_stage(job_id, "done", f"Validated and stored {count} finished clip(s) locally")
@@ -440,6 +443,7 @@ def api_create_job() -> Response:
             int(payload.get("num_clips", 3)),
             str(payload.get("aspect_ratio", "9:16")),
             str(payload.get("quality", "1080")),
+            str(payload.get("caption_mode", "generated")),
         )
     except (TypeError, ValueError) as exc:
         return jsonify({"error": str(exc)}), 400
@@ -499,6 +503,21 @@ function scheduleJobPoll(delay){clearTimeout(jobPollTimer);jobPollTimer=setTimeo
 async function loadJob(){if(jobPollInFlight)return;jobPollInFlight=true;let continuePolling=true;try{let r=await fetch('/api/jobs/'+currentJob,{cache:'no-store',headers:{'Cache-Control':'no-cache'}});if(!r.ok)throw new Error('Local job service returned '+r.status);let j=await r.json();let jobBadge=document.getElementById('job-badge');jobBadge.className='badge '+j.status;jobBadge.textContent=j.status;document.getElementById('job-state').textContent=j.status==='done'?'ready.':j.status==='failed'?'paused.':j.status+'…';document.getElementById('job-url').textContent=j.source_url;document.getElementById('job-elapsed').textContent=fmtTime((j.completed_at||Date.now()/1000)-(j.started_at||j.created_at));document.getElementById('clip-count').textContent=j.clip_count?j.clip_count+' validated clip'+(j.clip_count===1?'':'s'):'';document.getElementById('stage-track').innerHTML=j.stages.map(s=>'<div class="stage '+stageClass(s)+'"><span class="stage-dot"></span><span class="stage-name">'+s.stage+'</span></div>').join('');let err=document.getElementById('error-box');err.innerHTML=j.status==='failed'?'<div class="error-box"><strong>'+j.error_stage+'</strong> — '+j.error_message+'</div>':'';let retry=document.getElementById('retry');retry.hidden=j.status!=='failed';retry.onclick=async()=>{retry.disabled=true;let response=await fetch('/api/jobs/'+currentJob+'/retry',{method:'POST',cache:'no-store'});if(!response.ok){retry.disabled=false;return}scheduleJobPoll(250)};let log=document.getElementById('log');let wasAtBottom=log.scrollHeight-log.scrollTop-log.clientHeight<35;log.innerHTML=j.logs.length?j.logs.map(x=>'<div class="log-line"><span class="log-time">'+fmtDate(x.timestamp)+'</span><span class="log-stage">'+x.stage+'</span>'+x.message+'</div>').join(''):'Waiting for first local worker event…';if(wasAtBottom)log.scrollTop=log.scrollHeight;let results=document.getElementById('results');results.innerHTML=j.clips.length?'<div class="clip-grid">'+j.clips.map(c=>'<article class="clip"><video controls preload="metadata" src="'+c.stream_url+'"></video><div class="clip-info"><div class="clip-name">'+c.title+'</div><div class="clip-metrics"><span>'+c.score+'/100</span><span>'+c.duration.toFixed(1)+'s</span></div><div style="font-size:11px;color:#68706e;line-height:1.4">'+(c.hook_sentence||'Validated local clip')+'</div><a class="download" href="'+c.download_url+'&download=1">Download MP4 ↓</a></div></article>').join('')+'</div>':'<div class="empty">Validated clips will appear here as each job finishes.</div>';continuePolling=!['done','failed'].includes(j.status)}catch(error){console.warn('Live job refresh failed; reconnecting automatically.',error);continuePolling=true}finally{jobPollInFlight=false;if(continuePolling)scheduleJobPoll(document.hidden?4000:1000)}}
 if(currentJob){loadJob();document.addEventListener('visibilitychange',()=>{if(!document.hidden)loadJob()})}else{initChoices('count-choices','num_clips');initChoices('ratio-choices','aspect_ratio');initChoices('quality-choices','quality');document.getElementById('submit-form').addEventListener('submit',submitJob);loadJobs();setInterval(loadJobs,4000)}
 </script></body></html>'''
+
+# Keep the dense self-contained template compatible with older installations
+# while adding a per-job treatment for reposted videos that already include
+# source-baked subtitles. Those subtitles cannot be removed after download, so
+# a second generated karaoke track must be deliberately skipped.
+PAGE_TEMPLATE = PAGE_TEMPLATE.replace(
+    "let selection={num_clips:3,aspect_ratio:'9:16',quality:'1080'};",
+    "let selection={num_clips:3,aspect_ratio:'9:16',quality:'1080',caption_mode:'generated'};",
+).replace(
+    '<label class="form-label">Source quality</label><div id="quality-choices" class="choice-row two"><button class="choice" data-value="720" type="button">720p</button><button class="choice active" data-value="1080" type="button">1080p</button></div><div class="submit-bar">',
+    '<label class="form-label">Source quality</label><div id="quality-choices" class="choice-row two"><button class="choice" data-value="720" type="button">720p</button><button class="choice active" data-value="1080" type="button">1080p</button></div><label class="form-label">Caption treatment</label><div id="caption-choices" class="choice-row two"><button class="choice active" data-value="generated" type="button">Generate captions</button><button class="choice" data-value="source" type="button">Use source captions</button></div><div class="form-note" style="margin-top:9px">Choose “Use source captions” only when the downloaded video already has subtitles burned into it; this prevents two caption tracks.</div><div class="submit-bar">',
+).replace(
+    "initChoices('quality-choices','quality');document.getElementById('submit-form')",
+    "initChoices('quality-choices','quality');initChoices('caption-choices','caption_mode');document.getElementById('submit-form')",
+)
 
 
 def main() -> None:

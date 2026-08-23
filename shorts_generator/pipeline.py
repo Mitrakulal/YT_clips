@@ -23,6 +23,7 @@ def _run_local(
     language: Optional[str],
     output_dir: Optional[str] = None,
     progress_callback: Optional[ProgressCallback] = None,
+    caption_mode: str = "generated",
 ) -> Dict:
     from .config import LOCAL_OUTPUT_DIR, SEGMENTATION_SERVICE
     from .local.clipper import crop_highlights_local
@@ -79,29 +80,36 @@ def _run_local(
         out_dir=str(job_dir / "clips"),
     )
 
-    _emit(progress_callback, "captioning", "Burning captions, hooks, audio normalization, and validation")
+    caption_mode = (caption_mode or "generated").strip().lower()
+    if caption_mode not in {"generated", "source"}:
+        raise ValueError("caption_mode must be 'generated' or 'source'.")
+    treatment = "Preserving source captions and validating output" if caption_mode == "source" else "Burning generated captions, normalizing audio, and validating output"
+    _emit(progress_callback, "captioning", treatment)
     words = [word for segment in transcript.get("segments", []) for word in segment.get("words", [])]
     for short in shorts:
         if not short.get("clip_url"):
             continue
         raw_clip = short["clip_url"]
-        captioned = str(Path(raw_clip).with_suffix("")) + "_captioned.mp4"
         try:
-            subtitle_burn_stage(
-                raw_clip,
-                words,
-                float(short["start_time"]),
-                float(short["end_time"]),
-                captioned,
-                hook_text=short.get("title"),
-                aspect_ratio=aspect_ratio,
-            )
-            validate_clip(captioned, aspect_ratio=aspect_ratio)
-            short["clip_url"] = captioned
+            if caption_mode == "source":
+                final_clip = raw_clip
+            else:
+                final_clip = str(Path(raw_clip).with_suffix("")) + "_captioned.mp4"
+                subtitle_burn_stage(
+                    raw_clip,
+                    words,
+                    float(short["start_time"]),
+                    float(short["end_time"]),
+                    final_clip,
+                    hook_text=short.get("title"),
+                    aspect_ratio=aspect_ratio,
+                )
+            validate_clip(final_clip, aspect_ratio=aspect_ratio)
+            short["clip_url"] = final_clip
             thumbnail = thumbnail_stage(
-                captioned,
+                final_clip,
                 short.get("title"),
-                f"{Path(captioned).with_suffix('')}.jpg",
+                f"{Path(final_clip).with_suffix('')}.jpg",
                 enabled=True,
             )
             if thumbnail:
@@ -117,6 +125,7 @@ def _run_local(
         "transcript": transcript,
         "highlights": all_highlights,
         "shorts": shorts,
+        "caption_mode": caption_mode,
     }
 
 
@@ -155,6 +164,7 @@ def generate_shorts(
     mode: str = "api",
     output_dir: Optional[str] = None,
     progress_callback: Optional[ProgressCallback] = None,
+    caption_mode: str = "generated",
 ) -> Dict:
     """Run the full pipeline and optionally emit local job-stage progress."""
     mode = (mode or "api").lower()
@@ -167,6 +177,7 @@ def generate_shorts(
             language,
             output_dir=output_dir,
             progress_callback=progress_callback,
+            caption_mode=caption_mode,
         )
     if mode == "api":
         return _run_api(youtube_url, num_clips, aspect_ratio, download_format, language)
