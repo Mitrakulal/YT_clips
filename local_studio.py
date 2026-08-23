@@ -92,6 +92,44 @@ def init_storage() -> None:
             )
 
 
+def recover_interrupted_jobs() -> int:
+    """Mark jobs interrupted by a process shutdown as retryable without deleting artifacts."""
+    message = (
+        "Local dashboard stopped while this job was running. Existing source and transcript artifacts "
+        "were preserved; choose Retry from beginning to continue using the cached work."
+    )
+    active_stages = tuple(stage for stage in STAGE_SEQUENCE if stage not in {"queued", "done"})
+    if not active_stages:
+        return 0
+    placeholders = ", ".join("?" for _ in active_stages)
+    timestamp = now()
+    recovered_ids: List[str] = []
+    with db() as connection:
+        rows = connection.execute(
+            f"SELECT id, active_stage FROM jobs WHERE status IN ({placeholders})",
+            active_stages,
+        ).fetchall()
+        for row in rows:
+            job_id = row["id"]
+            failed_stage = row["active_stage"]
+            connection.execute(
+                "UPDATE job_stages SET status='error', completed_at=?, message=? WHERE job_id=? AND stage=?",
+                (timestamp, message, job_id, failed_stage),
+            )
+            connection.execute(
+                "UPDATE jobs SET status='failed', active_stage='failed', completed_at=?, error_stage=?, error_message=? WHERE id=?",
+                (timestamp, failed_stage, message, job_id),
+            )
+            connection.execute(
+                "INSERT INTO job_stages (job_id, stage, status, started_at, completed_at, message) VALUES (?, 'failed', 'error', ?, ?, ?) ON CONFLICT(job_id, stage) DO UPDATE SET status='error', started_at=excluded.started_at, completed_at=excluded.completed_at, message=excluded.message",
+                (job_id, timestamp, timestamp, message),
+            )
+            recovered_ids.append(job_id)
+    for job_id in recovered_ids:
+        log_event(job_id, "failed", message)
+    return len(recovered_ids)
+
+
 def log_event(job_id: str, stage: str, message: str) -> None:
     with db() as connection:
         connection.execute(
@@ -257,9 +295,13 @@ def reset_for_retry(job_id: str) -> bool:
         if not job or job["status"] != "failed":
             return False
         output_dir = Path(job["output_dir"])
-        if output_dir.exists():
-            shutil.rmtree(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
+        # Preserve source and transcript caches so an interrupted job does not
+        # repeat the most expensive stages. Only generated presentation assets
+        # are cleared before the deterministic rerender.
+        for generated_dir in (output_dir / "clips",):
+            if generated_dir.exists():
+                shutil.rmtree(generated_dir)
         connection.execute("DELETE FROM clips WHERE job_id = ?", (job_id,))
         connection.execute("DELETE FROM job_stages WHERE job_id = ?", (job_id,))
         for stage in ALL_STAGES:
@@ -272,7 +314,7 @@ def reset_for_retry(job_id: str) -> bool:
             "UPDATE jobs SET status='queued', active_stage='queued', started_at=NULL, completed_at=NULL, retry_count=retry_count+1, error_stage=NULL, error_message=NULL, clip_count=0 WHERE id=?",
             (job_id,),
         )
-    log_event(job_id, "queued", "Retry requested; job re-queued from the beginning")
+    log_event(job_id, "queued", "Retry requested; source and transcript caches preserved for reuse")
     return True
 
 
@@ -461,10 +503,13 @@ def main() -> None:
     parser.add_argument("--no-browser", action="store_true")
     args = parser.parse_args()
     init_storage()
+    recovered = recover_interrupted_jobs()
     ensure_worker()
     url = f"http://{args.host}:{args.port}"
     if not args.no_browser:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()
+    if recovered:
+        print(f"[recovery] marked {recovered} interrupted job(s) as retryable", flush=True)
     print(f"YT Clips Studio is local-only at {url}", flush=True)
     try:
         from waitress import serve

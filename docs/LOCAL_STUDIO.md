@@ -57,4 +57,4 @@ Before a clip is added to a completed job, the pipeline validates that it is an 
 | `studio_data/jobs/<job-id>/` | All job-specific source, transcript, clip, thumbnail, and caption artifacts. |
 | `start_studio.command` | One-command startup for the local dashboard and worker. |
 
-If the app is closed while a job is running, simply launch it again. A queued job is picked up automatically. A job that was interrupted while active is recorded as its last completed state; for a clean full restart, use the retry control in the interface.
+If the app is closed while a job is running, launch it again. At startup the dashboard marks the interrupted active job as **failed** with a clear recovery message. Select **Retry from beginning** in the dashboard: it retains the per-job downloaded source and transcript cache, clears generated clip assets, and continues without repeating completed download/transcription work.

@@ -64,6 +64,31 @@ class LocalStudioTests(unittest.TestCase):
         self.assertEqual(job["active_stage"], "queued")
         self.assertEqual(job["retry_count"], 1)
 
+    def test_retry_preserves_cached_source_and_transcript_artifacts(self):
+        job_id = local_studio.create_job("https://youtu.be/abcdefghijk", 1, "9:16", "720")
+        detail = local_studio.job_detail(job_id)
+        job_dir = Path(detail["output_dir"])
+        source = job_dir / "source" / "source_abcdefghijk_720.mp4"
+        transcript = job_dir / "transcript" / "source_abcdefghijk_720.srt"
+        source.parent.mkdir(parents=True)
+        transcript.parent.mkdir(parents=True)
+        source.write_bytes(b"cached-source")
+        transcript.write_text("cached-transcript", encoding="utf-8")
+        local_studio.set_stage(job_id, "downloading", "Starting source download")
+        local_studio.set_stage(job_id, "failed", "Interrupted")
+        self.assertTrue(local_studio.reset_for_retry(job_id))
+        self.assertTrue(source.exists())
+        self.assertTrue(transcript.exists())
+
+    def test_startup_recovery_marks_active_job_failed_and_retryable(self):
+        job_id = local_studio.create_job("https://youtu.be/abcdefghijk", 1, "9:16", "720")
+        local_studio.set_stage(job_id, "transcribing", "Creating transcript")
+        self.assertEqual(local_studio.recover_interrupted_jobs(), 1)
+        job = self.client.get(f"/api/jobs/{job_id}").json
+        self.assertEqual(job["status"], "failed")
+        self.assertEqual(job["error_stage"], "transcribing")
+        self.assertIn("artifacts were preserved", job["error_message"])
+
     def test_versioned_migration_applies_without_losing_existing_rows(self):
         with local_studio.db() as connection:
             connection.execute("CREATE TABLE preserved_note (message TEXT NOT NULL)")
