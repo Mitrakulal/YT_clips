@@ -318,6 +318,10 @@ Every candidate below is already a contiguous, context-complete unit. You MUST s
 only by candidate_id; never invent timestamps, merge candidates, or split candidates.
 Prefer a complete setup -> development -> payoff/reaction. Reject filler, greetings,
 mid-thought fragments, and segments whose meaning depends on missing context.
+Use the BEFORE preview as an opening audit: reject an opening that reads as a
+response, continuation, or soft reaction to missing context when another candidate
+has a clearer standalone premise. Do not reject a strong direct hook merely because
+it is short.
 Use the AFTER preview as an ending audit: reject a candidate if it ends by introducing
 a new unfinished topic, rather than ending on the payoff, conclusion, or natural reaction.
 

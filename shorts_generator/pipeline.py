@@ -25,7 +25,7 @@ def _run_local(
     progress_callback: Optional[ProgressCallback] = None,
     caption_mode: str = "generated",
 ) -> Dict:
-    from .config import LOCAL_OUTPUT_DIR, SEGMENTATION_SERVICE
+    from .config import LOCAL_OUTPUT_DIR, REACTION_TAIL_SECONDS, SEGMENTATION_SERVICE
     from .local.clipper import crop_highlights_local
     from .local.downloader import download_youtube_local
     from .local.llm import call_local_llm
@@ -69,7 +69,12 @@ def _run_local(
     if not all_highlights:
         raise RuntimeError("Highlight generator returned zero clips.")
 
-    top = sorted(all_highlights, key=lambda h: int(h.get("score", 0)), reverse=True)[:num_clips]
+    content_type = str(highlights_result.get("content_info", {}).get("content_type", "other"))
+    reaction_tail = REACTION_TAIL_SECONDS if content_type in {"comedy", "storytelling"} else 0.0
+    top = [
+        {**highlight, "reaction_tail_seconds": reaction_tail}
+        for highlight in sorted(all_highlights, key=lambda h: int(h.get("score", 0)), reverse=True)[:num_clips]
+    ]
     render_boundaries = highlights_result.get("effective_boundaries", boundaries)
     _emit(progress_callback, "cropping", f"Rendering {len(top)} vertical clip candidate(s)")
     shorts = crop_highlights_local(

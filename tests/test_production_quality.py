@@ -140,6 +140,25 @@ class ProductionQualityTests(unittest.TestCase):
         crop.assert_called_once()
         self.assertEqual(crop.call_args.args[1:3], (10.0, 46.0))
 
+    def test_renderer_keeps_only_a_bounded_silent_reaction_tail(self):
+        highlight = {
+            "title": "A complete joke",
+            "start_time": 10.0,
+            "end_time": 20.0,
+            "score": 98,
+            "reaction_tail_seconds": 0.5,
+        }
+        words = [
+            {"start": 10.0, "end": 20.0, "word": "Punchline"},
+            {"start": 21.0, "end": 22.0, "word": "Next"},
+        ]
+        with tempfile.TemporaryDirectory() as td:
+            with patch("shorts_generator.local.clipper.crop_clip_local") as crop:
+                results = crop_highlights_local("source.mp4", [highlight], out_dir=td, words=words)
+        self.assertEqual(results[0]["start_time"], 10.0)
+        self.assertEqual(results[0]["end_time"], 20.5)
+        self.assertEqual(crop.call_args.args[1:3], (10.0, 20.5))
+
     def test_candidate_ranking_prompt_audits_for_unfinished_endings(self):
         prompts = []
 
@@ -157,7 +176,7 @@ class ProductionQualityTests(unittest.TestCase):
             ],
         }
         get_highlights(transcript, num_clips=1, llm_fn=fake_llm, boundaries=[14.5])
-        self.assertTrue(any("ending audit" in prompt for prompt in prompts))
+        self.assertTrue(any("opening audit" in prompt and "ending audit" in prompt for prompt in prompts))
 
     def test_stage_done_requires_artifact(self):
         with tempfile.TemporaryDirectory() as td:

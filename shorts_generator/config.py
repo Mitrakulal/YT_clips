@@ -77,6 +77,9 @@ LOUDNESS_FILTER = os.getenv("LOUDNESS_FILTER", "loudnorm=I=-14:TP=-1.5:LRA=11")
 OUTPUT_FPS = int(os.getenv("OUTPUT_FPS", "30"))
 # 6. Source download: prefer high-res when available (falls back automatically)
 DOWNLOAD_FORMAT = os.getenv("DOWNLOAD_FORMAT", "1080")
+# Preserve a brief audience/reaction beat after a completed comedy or storytelling
+# candidate, but never extend into the next spoken word.
+REACTION_TAIL_SECONDS = max(0.0, float(os.getenv("REACTION_TAIL_SECONDS", "0.5")))
 # 7. Caption styling: keyword emphasis; SUBTITLE_LANGUAGE forces a script (e.g. "en")
 KEYWORD_EMPHASIS = os.getenv("KEYWORD_EMPHASIS", "true").strip().lower() == "true"
 SUBTITLE_LANGUAGE = os.getenv("SUBTITLE_LANGUAGE", "").strip() or None

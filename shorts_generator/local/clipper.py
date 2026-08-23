@@ -355,10 +355,24 @@ def crop_highlights_local(
         # here can turn one approved setup→payoff→reaction into random partial
         # videos. Keep the parameter for backwards-compatible callers, but do
         # not use it to rewrite a ranked candidate after selection.
-        windows = [(float(h["start_time"]), float(h["end_time"]))]
+        start_time = float(h["start_time"])
+        end_time = float(h["end_time"])
+        requested_tail = max(0.0, float(h.get("reaction_tail_seconds", 0) or 0))
+        if requested_tail and words:
+            # Retain a short natural reaction after a finished comedy beat only
+            # when the timeline contains silence. Never cross into the next
+            # spoken word, which would turn the selected candidate into a new
+            # unrelated thought.
+            next_word_start = next(
+                (float(word["start"]) for word in words if float(word.get("start", 0)) >= end_time),
+                float(source_duration or end_time),
+            )
+            silent_tail = max(0.0, next_word_start - end_time)
+            end_time += min(requested_tail, silent_tail)
+        windows = [(start_time, end_time)]
         print(
             f"[clip/local] rendering selected complete candidate "
-            f"{h['start_time']:.2f}->{h['end_time']:.2f}s without post-rank splits",
+            f"{start_time:.2f}->{end_time:.2f}s without post-rank splits",
             flush=True,
         )
         try:
