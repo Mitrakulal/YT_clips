@@ -23,6 +23,8 @@ from shorts_generator.config import (
     LOUDNESS_FILTER,
     OUTPUT_FPS,
     KARAOKE,
+    CAPTION_MARGIN_SQUARE,
+    CAPTION_MARGIN_VERTICAL,
 )
 
 # Keyword highlight colour (ASS AARRGGBB) — bright yellow, pops off the picture.
@@ -36,8 +38,8 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Caption,Arial,84,&H00FFFFFF,&H00FFE600,&H00000000,&H90000000,-1,0,0,0,100,100,0.6,0,1,4,1,2,40,40,__CAPTION_MARGIN__,1
-Style: Hook,Arial,__HOOKSIZE__,&H00FFFFFF,&H0000FFC8,&H00000000,&HB0000000,-1,0,0,0,100,100,1,0,4,2,0,5,60,60,0,1
+Style: Caption,Kohinoor Devanagari,84,&H00FFFFFF,&H00FFE600,&H00000000,&H90000000,-1,0,0,0,100,100,0.6,0,1,4,1,2,40,40,__CAPTION_MARGIN__,1
+Style: Hook,Kohinoor Devanagari,__HOOKSIZE__,&H00FFFFFF,&H0000FFC8,&H00000000,&HB0000000,-1,0,0,0,100,100,1,0,4,2,0,5,60,60,0,1
 """
 
 _STOPWORDS = {
@@ -96,7 +98,10 @@ def build_ass(
     the first HOOK_SECONDS of the clip (#3).
     """
     width, height = canvas_size
-    caption_margin = 230 if height > width else 125
+    # Alignment=2 anchors captions at the lower centre. A 420 px margin on the
+    # 1080x1920 delivery canvas keeps them above the crowded Shorts metadata,
+    # description, and playback controls instead of underneath them.
+    caption_margin = CAPTION_MARGIN_VERTICAL if height > width else CAPTION_MARGIN_SQUARE
     header = (
         ASS_HEADER.replace("__HOOKSIZE__", str(HOOK_FONT_SIZE))
         .replace("__WIDTH__", str(width))

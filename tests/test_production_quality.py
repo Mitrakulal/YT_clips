@@ -3,9 +3,11 @@ import re
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from shorts_generator.coherence import build_coherent_candidates
 from shorts_generator.highlights import get_highlights
+from shorts_generator.local.clipper import crop_highlights_local
 from shorts_generator.local.segment import split_window_at_boundaries
 import stage
 
@@ -118,6 +120,44 @@ class ProductionQualityTests(unittest.TestCase):
         self.assertEqual(result["effective_boundaries"], [])
         self.assertEqual(len(result["candidates"]), 1)
         self.assertIn("punchline", result["candidates"][0]["text"])
+
+    def test_renderer_never_splits_a_ranked_complete_candidate(self):
+        highlight = {
+            "title": "A complete joke",
+            "start_time": 10.0,
+            "end_time": 46.0,
+            "score": 98,
+        }
+        with tempfile.TemporaryDirectory() as td:
+            with patch("shorts_generator.local.clipper.crop_clip_local") as crop:
+                results = crop_highlights_local(
+                    "source.mp4", [highlight], out_dir=td, boundaries=[20.0, 33.0]
+                )
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["start_time"], 10.0)
+        self.assertEqual(results[0]["end_time"], 46.0)
+        self.assertTrue(results[0]["clip_url"].endswith("short_01.mp4"))
+        crop.assert_called_once()
+        self.assertEqual(crop.call_args.args[1:3], (10.0, 46.0))
+
+    def test_candidate_ranking_prompt_audits_for_unfinished_endings(self):
+        prompts = []
+
+        def fake_llm(prompt):
+            prompts.append(prompt)
+            if prompt.startswith("Analyze this video transcript sample"):
+                return '{"content_type":"interview","density":"medium"}'
+            return '{"highlights":[{"candidate_id":"candidate_001","score":95}]}'
+
+        transcript = {
+            "duration": 30,
+            "segments": [
+                {"start": 0, "end": 14, "text": "This thought reaches a complete conclusion."},
+                {"start": 15, "end": 30, "text": "A separate thought begins with its own ending."},
+            ],
+        }
+        get_highlights(transcript, num_clips=1, llm_fn=fake_llm, boundaries=[14.5])
+        self.assertTrue(any("ending audit" in prompt for prompt in prompts))
 
     def test_stage_done_requires_artifact(self):
         with tempfile.TemporaryDirectory() as td:

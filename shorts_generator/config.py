@@ -58,8 +58,10 @@ COHERENCE_MIN_SECONDS = float(os.getenv("COHERENCE_MIN_SECONDS", "12"))
 COHERENCE_TARGET_SECONDS = float(os.getenv("COHERENCE_TARGET_SECONDS", "45"))
 COHERENCE_MAX_SECONDS = float(os.getenv("COHERENCE_MAX_SECONDS", "120"))
 # 2. Sentence-boundary trimming is ALWAYS on (aligns cuts to word boundaries)
-# 3. Hook text overlay: big bold title burned into the first seconds of each clip
-HOOK_TEXT = os.getenv("HOOK_TEXT", "true").strip().lower() == "true"
+# 3. Hook text overlay: optional only. Transcript-derived titles are often too
+# long or unreliable to burn into the picture, so dynamic captions are the
+# default production treatment. Enable deliberately for a reviewed title card.
+HOOK_TEXT = os.getenv("HOOK_TEXT", "false").strip().lower() == "true"
 HOOK_SECONDS = float(os.getenv("HOOK_SECONDS", "3"))
 HOOK_FONT_SIZE = int(os.getenv("HOOK_FONT_SIZE", "72"))
 # 4. Dynamic zoom (Ken Burns slow push-in, applied per-frame in the reframer)
@@ -78,6 +80,11 @@ DOWNLOAD_FORMAT = os.getenv("DOWNLOAD_FORMAT", "1080")
 # 7. Caption styling: keyword emphasis; SUBTITLE_LANGUAGE forces a script (e.g. "en")
 KEYWORD_EMPHASIS = os.getenv("KEYWORD_EMPHASIS", "true").strip().lower() == "true"
 SUBTITLE_LANGUAGE = os.getenv("SUBTITLE_LANGUAGE", "").strip() or None
+# Keep captions above the YouTube Shorts lower metadata and progress controls.
+# The defaults are expressed in the final ASS canvas pixels so they remain
+# deterministic across source resolutions.
+CAPTION_MARGIN_VERTICAL = int(os.getenv("CAPTION_MARGIN_VERTICAL", "420"))
+CAPTION_MARGIN_SQUARE = int(os.getenv("CAPTION_MARGIN_SQUARE", "170"))
 
 # --- Topic-shift segmentation (fixes merged clips) ---
 # SEGMENTATION_SERVICE: "off" (default) | "semantic" | "auto"

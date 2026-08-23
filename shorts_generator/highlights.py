@@ -318,6 +318,8 @@ Every candidate below is already a contiguous, context-complete unit. You MUST s
 only by candidate_id; never invent timestamps, merge candidates, or split candidates.
 Prefer a complete setup -> development -> payoff/reaction. Reject filler, greetings,
 mid-thought fragments, and segments whose meaning depends on missing context.
+Use the AFTER preview as an ending audit: reject a candidate if it ends by introducing
+a new unfinished topic, rather than ending on the payoff, conclusion, or natural reaction.
 
 Content type: {content_type} | Density: {density}
 Select up to {num_clips} candidates, returning the strongest distinct moments.

@@ -350,13 +350,15 @@ def crop_highlights_local(
     results: List[Dict] = []
     for i, h in enumerate(highlights, 1):
         print(f"[clip/local] {i}/{len(highlights)}: {h.get('title', '(untitled)')}", flush=True)
-        windows = split_window_at_boundaries(
-            float(h["start_time"]), float(h["end_time"]),
-            boundaries or [], SEGMENT_MIN_SECONDS,
-        )
+        # Boundaries are used before ranking to build coherent candidates. A
+        # selected candidate is already a complete beat, so splitting it again
+        # here can turn one approved setup→payoff→reaction into random partial
+        # videos. Keep the parameter for backwards-compatible callers, but do
+        # not use it to rewrite a ranked candidate after selection.
+        windows = [(float(h["start_time"]), float(h["end_time"]))]
         print(
-            f"[clip/local] window {h['start_time']:.2f}->{h['end_time']:.2f}s "
-            f"splits into {len(windows)} clip(s) at {len(boundaries or [])} boundaries",
+            f"[clip/local] rendering selected complete candidate "
+            f"{h['start_time']:.2f}->{h['end_time']:.2f}s without post-rank splits",
             flush=True,
         )
         try:

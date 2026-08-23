@@ -1,4 +1,5 @@
 import tempfile
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -19,6 +20,14 @@ class AspectRatioContractTests(unittest.TestCase):
         self.assertIn("PlayResX: 1080", content)
         self.assertIn("PlayResY: 1080", content)
         self.assertNotIn("__CAPTION_MARGIN__", content)
+
+    def test_vertical_ass_uses_hinglish_capable_font_and_safe_caption_offset(self):
+        with tempfile.TemporaryDirectory() as td:
+            output = Path(td) / "caption.ass"
+            build_ass([], 0, 10, str(output), canvas_size=(1080, 1920))
+            content = output.read_text(encoding="utf-8")
+        self.assertIn("Style: Caption,Kohinoor Devanagari", content)
+        self.assertIn(",40,40,420,1", content)
 
 
 if __name__ == "__main__":
