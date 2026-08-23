@@ -26,6 +26,22 @@ from .coherence import build_coherent_candidates, candidate_context
 
 LLMFn = Callable[[str], str]
 
+_CONTEXT_DEPENDENT_OPENING = re.compile(
+    r"^\s*(?:and|but|so|because|also|then|anyway|okay|yeah|yes|no|right|well|i mean|i thought it was|it was|that's|this is)\b",
+    re.IGNORECASE,
+)
+_CONTEXT_DEPENDENT_OPENING_PENALTY = 12
+
+
+def _opening_penalty(candidate_text: str) -> int:
+    """Penalize likely continuation openings without moving a safe candidate span.
+
+    This is deliberately a ranking preference, not a timestamp rewrite. A
+    context-dependent candidate can still win when it is the only meaningful
+    complete beat, but a similarly strong standalone premise should outrank it.
+    """
+    return _CONTEXT_DEPENDENT_OPENING_PENALTY if _CONTEXT_DEPENDENT_OPENING.match(candidate_text or "") else 0
+
 
 CONTENT_TYPE_PROMPT = """Analyze this video transcript sample and classify the content type.
 Choose one: comedy, storytelling, podcast, interview, tutorial, lecture, commentary, debate, vlog, other.
@@ -392,11 +408,12 @@ def _rank_candidate_batch(
                 if not candidate or cid in used:
                     continue
                 used.add(cid)
+                raw_score = max(0, min(100, _coerce_int(item.get("score"), 0)))
                 ranked.append({
                     "title": str(item.get("title") or candidate["text"][:70]).strip(),
                     "start_time": candidate["start_time"],
                     "end_time": candidate["end_time"],
-                    "score": max(0, min(100, _coerce_int(item.get("score"), 0))),
+                    "score": max(0, raw_score - _opening_penalty(candidate["text"])),
                     "hook_sentence": str(item.get("hook_sentence") or candidate["text"][:180]).strip(),
                     "virality_reason": str(item.get("virality_reason") or "Complete candidate selected by context-aware ranking").strip(),
                     "candidate_id": cid,

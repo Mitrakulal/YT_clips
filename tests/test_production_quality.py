@@ -178,6 +178,24 @@ class ProductionQualityTests(unittest.TestCase):
         get_highlights(transcript, num_clips=1, llm_fn=fake_llm, boundaries=[14.5])
         self.assertTrue(any("opening audit" in prompt and "ending audit" in prompt for prompt in prompts))
 
+    def test_ranker_prefers_clear_standalone_opening_over_soft_continuation(self):
+        transcript = {
+            "duration": 32,
+            "segments": [
+                {"start": 0, "end": 15, "text": "Okay, and then we finally told them what happened."},
+                {"start": 16, "end": 32, "text": "A bear bit her arm off during a hike, and this is what she said next."},
+            ],
+        }
+
+        def fake_llm(prompt):
+            if prompt.startswith("Analyze this video transcript sample"):
+                return '{"content_type":"interview","density":"medium"}'
+            return '{"highlights":[{"candidate_id":"candidate_001","score":95},{"candidate_id":"candidate_002","score":90}]}'
+
+        result = get_highlights(transcript, num_clips=1, llm_fn=fake_llm, boundaries=[15.5])
+        self.assertEqual(result["highlights"][0]["candidate_id"], "candidate_002")
+        self.assertEqual(result["highlights"][0]["score"], 90)
+
     def test_stage_done_requires_artifact(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "state.json"
