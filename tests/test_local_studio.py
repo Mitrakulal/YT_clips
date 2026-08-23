@@ -103,6 +103,17 @@ class LocalStudioTests(unittest.TestCase):
         self.assertEqual(preserved["message"], "keep me")
         self.assertIsNotNone(jobs_table)
 
+    def test_job_api_disables_browser_caching_for_live_refresh(self):
+        job_id = local_studio.create_job("https://youtu.be/abcdefghijk", 1, "9:16", "720")
+        response = self.client.get(f"/api/jobs/{job_id}")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["Cache-Control"], "no-store, max-age=0")
+
+    def test_progress_template_uses_resilient_live_refresh(self):
+        self.assertIn("cache:'no-store'", local_studio.PAGE_TEMPLATE)
+        self.assertIn("scheduleJobPoll", local_studio.PAGE_TEMPLATE)
+        self.assertIn("visibilitychange", local_studio.PAGE_TEMPLATE)
+
 
 if __name__ == "__main__":
     unittest.main()
