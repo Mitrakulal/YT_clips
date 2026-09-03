@@ -9,5 +9,9 @@ openai>=1.0.0
 google-genai>=1.0.0
 # OpenCV 5 removed APIs used by the Haar fallback; keep the production-compatible line.
 opencv-python==4.10.0.84
+# Pillow renders thumbnail title bands; without it thumbs ship as plain
+# frames AND the stage logs a bogus failure (frame already moved, then
+# os.remove raises FileNotFoundError). Keep pinned with the local stack.
+pillow>=10.0.0
 # torch is only needed if you want CUDA Whisper. CPU works without it.
 # torch>=2.0

@@ -13,6 +13,8 @@ import os
 import secrets
 import shutil
 import sqlite3
+import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -373,6 +375,27 @@ def persist_results(job_id: str, result: Dict[str, Any]) -> int:
     return len(valid)
 
 
+def _backup_media_async(job_id: str) -> None:
+    """Fire-and-forget push of finished clips to the private media repo.
+
+    Runs in a daemon thread so slow uploads never block the worker, and
+    swallows all errors — backup must never fail a completed job.
+    """
+    def _run() -> None:
+        try:
+            r = subprocess.run(
+                [sys.executable, str(ROOT / "push_job_media.py"), job_id],
+                capture_output=True, text=True, timeout=900,
+            )
+            print(f"[media-backup] {r.stdout.strip() or 'no output'}", flush=True)
+            if r.returncode != 0:
+                print(f"[media-backup] {r.stderr.strip()[:200]}", flush=True)
+        except Exception as exc:
+            print(f"[media-backup] skipped: {exc}", flush=True)
+
+    threading.Thread(target=_run, name=f"media-backup-{job_id}", daemon=True).start()
+
+
 def run_job(job: Dict[str, Any]) -> None:
     job_id = job["id"]
     output_dir = Path(job["output_dir"])
@@ -393,6 +416,7 @@ def run_job(job: Dict[str, Any]) -> None:
         )
         count = persist_results(job_id, result)
         set_stage(job_id, "done", f"Validated and stored {count} finished clip(s) locally")
+        _backup_media_async(job_id)
     except Exception as exc:
         set_stage(job_id, "failed", str(exc))
 

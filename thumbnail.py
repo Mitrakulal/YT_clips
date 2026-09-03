@@ -24,7 +24,10 @@ def make_thumbnail(clip_path: str, title: Optional[str], out_path: str) -> str:
     text = " ".join((title or "").split())[:80]
     if text:
         _stamp_title(frame_path, text, out_path)
-        os.remove(frame_path)
+        if os.path.exists(frame_path):
+            # _stamp_title consumes the frame on its Pillow-missing fallback
+            # (os.replace into out_path); only clean up if still there.
+            os.remove(frame_path)
     else:
         os.replace(frame_path, out_path)
     return out_path
